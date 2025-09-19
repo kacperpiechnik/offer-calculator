@@ -293,8 +293,9 @@ def main():
                 st.success("✓ Data Loaded")
     
     # Initialize session state
+    # Initialize session state
     if 'data' not in st.session_state:
-        st.session_state.data = existing_data if existing_data else {}
+        st.session_state.data = {}
     
     # Main content
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Property & Offers", "🏘️ Comps Analysis", "📐 Subdivision", "💰 Negotiation"])
