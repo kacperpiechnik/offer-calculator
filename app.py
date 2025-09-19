@@ -145,15 +145,15 @@ def load_from_db(deal_id):
         return None
 
 # ============= GOOGLE SHEETS FUNCTIONS =============
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=300)  
 def load_google_sheets_config():
     """Load configuration from Google Sheets"""
     try:
         # Authenticate with Google Sheets
         scope = ['https://spreadsheets.google.com/feeds',
-         'https://www.googleapis.com/auth/spreadsheets',
-         'https://www.googleapis.com/auth/drive']
-        creds = Credentials.from_service_account_info(GOOGLE_SHEETS_CREDS, scopes=scope)
+                 'https://www.googleapis.com/auth/spreadsheets',
+                 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scope)
         client = gspread.authorize(creds)
         
         # Open the sheet
@@ -162,25 +162,20 @@ def load_google_sheets_config():
         # Get all values
         data = sheet.get_all_values()
         
-        # Parse the data (assuming first row is headers)
-        df = pd.DataFrame(data[1:], columns=data[0])
-        
-        # Convert to proper format
+        # Skip header row (row 1), start from row 2
         thresholds = []
         purchase_returns = []
         wholesale_returns = []
         
-        for i in range(len(df)):
-            # Column A (index 0): FMV in thousands
-            # Column B (index 1): Purchase Expected Return  
-            # Column C (index 2): Wholesale Expected Return
-            threshold = float(df.iloc[i, 0]) * 1000  # Convert from thousands to dollars
-            purchase_return = float(df.iloc[i, 1])  # Already in dollars
-            wholesale_return = float(df.iloc[i, 2])  # Already in dollars
-            
-            thresholds.append(threshold)
-            purchase_returns.append(purchase_return)
-            wholesale_returns.append(wholesale_return)
+        for i in range(1, len(data)):  # Start from 1 to skip header
+            if data[i][0]:  # If there's a value in column A
+                threshold = float(data[i][0]) * 1000  # Column A (FMV in thousands)
+                purchase_return = float(data[i][1]) if data[i][1] else 0  # Column B
+                wholesale_return = float(data[i][2]) if data[i][2] else 0  # Column C
+                
+                thresholds.append(threshold)
+                purchase_returns.append(purchase_return)
+                wholesale_returns.append(wholesale_return)
         
         return {
             'thresholds': thresholds, 
