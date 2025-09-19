@@ -150,7 +150,9 @@ def load_google_sheets_config():
     """Load configuration from Google Sheets"""
     try:
         # Authenticate with Google Sheets
-        scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        scope = ['https://spreadsheets.google.com/feeds',
+         'https://www.googleapis.com/auth/spreadsheets',
+         'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_info(GOOGLE_SHEETS_CREDS, scopes=scope)
         client = gspread.authorize(creds)
         
