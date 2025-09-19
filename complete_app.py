@@ -163,33 +163,49 @@ def load_google_sheets_config():
         # Parse the data (assuming first row is headers)
         df = pd.DataFrame(data[1:], columns=data[0])
         
-        # Convert to proper format (multiply by 1000 if values are in thousands)
+        # Convert to proper format
         thresholds = []
-        returns = []
+        purchase_returns = []
+        wholesale_returns = []
         
         for i in range(len(df)):
-            # Assuming column A is FMV threshold, column B is expected return
-            threshold = float(df.iloc[i, 0]) * 1000  # Convert from thousands
-            expected_return = float(df.iloc[i, 1])  # Already in dollars
+            # Column A (index 0): FMV in thousands
+            # Column B (index 1): Purchase Expected Return  
+            # Column C (index 2): Wholesale Expected Return
+            threshold = float(df.iloc[i, 0]) * 1000  # Convert from thousands to dollars
+            purchase_return = float(df.iloc[i, 1])  # Already in dollars
+            wholesale_return = float(df.iloc[i, 2])  # Already in dollars
+            
             thresholds.append(threshold)
-            returns.append(expected_return)
+            purchase_returns.append(purchase_return)
+            wholesale_returns.append(wholesale_return)
         
-        return {'thresholds': thresholds, 'returns': returns}
+        return {
+            'thresholds': thresholds, 
+            'purchase_returns': purchase_returns,
+            'wholesale_returns': wholesale_returns
+        }
     
     except Exception as e:
         st.warning(f"Could not load Google Sheets config: {e}. Using defaults.")
-        # Fallback to your CSV data
+        # Fallback to your data
         return {
             'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
-                          60000, 80000, 100000, 150000, 200000, 300000, 400000, 500000],
-            'returns': [0, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 
-                       10000, 12000, 15000, 20000, 25000, 35000, 40000, 50000]
+                          60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
+            'purchase_returns': [0, 2000, 2500, 3000, 4000, 5000, 5500, 7000, 
+                               8000, 10000, 12500, 17500, 20000, 22500, 25000, 30000, 35000],
+            'wholesale_returns': [0, 4000, 5000, 6000, 7000, 7500, 8500, 10000,
+                                12000, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 60000]
         }
 
-def get_expected_return(fmv, config):
+def get_expected_return(fmv, config, offer_type='purchase'):
     """Get expected return based on FMV using the threshold table"""
     thresholds = config['thresholds']
-    returns = config['returns']
+    
+    if offer_type == 'purchase':
+        returns = config['purchase_returns']
+    else:  # wholesale
+        returns = config['wholesale_returns']
     
     # Find the appropriate return based on FMV
     for i in range(len(thresholds) - 1, -1, -1):
@@ -198,23 +214,31 @@ def get_expected_return(fmv, config):
     return 0
 
 # ============= CALCULATION FUNCTIONS =============
-def calculate_offers(fmv, expected_return):
+def calculate_offers(fmv, config):
     """Calculate the three offer prices based on formulas"""
-    # Purchase Price = (FMV × 0.94 - Expected Return) / 1.0525
-    purchase_price = (fmv * 0.94 - expected_return) / 1.0525
+    # Get expected returns for each offer type
+    purchase_return = get_expected_return(fmv, config, 'purchase')
+    wholesale_return = get_expected_return(fmv, config, 'wholesale')
     
-    # Wholesale Price = FMV × 0.94 - 2500 - Expected Return
-    wholesale_price = fmv * 0.94 - 2500 - expected_return
+    # Purchase Price = (FMV × 0.94 - purchase_return) / 1.0525
+    purchase_price = (fmv * 0.94 - purchase_return) / 1.0525
+    
+    # Wholesale Price = FMV × 0.94 - 2500 - wholesale_return
+    wholesale_price = fmv * 0.94 - 2500 - wholesale_return
     
     return {
         'purchase': max(0, purchase_price),
-        'wholesale': max(0, wholesale_price)
+        'wholesale': max(0, wholesale_price),
+        'purchase_return': purchase_return,
+        'wholesale_return': wholesale_return
     }
 
-def calculate_seller_finance(value, expected_return, percentage=0.85):
+def calculate_seller_finance(value, config, percentage=0.85):
     """Calculate seller finance offer"""
-    # Seller Finance = value × percentage × 0.94 - 3500 - expected_return
-    seller_finance = value * percentage * 0.94 - 3500 - expected_return
+    # Get the purchase expected return for this value
+    purchase_return = get_expected_return(value, config, 'purchase')
+    # Seller Finance = value × percentage × 0.94 - 3500 - purchase_return
+    seller_finance = value * percentage * 0.94 - 3500 - purchase_return
     return max(0, seller_finance)
 
 # ============= PIPEDRIVE FUNCTIONS =============
@@ -345,11 +369,10 @@ def main():
         
         adjusted_fmv = fmv_input + total_adjustments
         
-        # Get expected return
-        expected_return = get_expected_return(adjusted_fmv, config)
-        
         # Calculate offers
-        offers = calculate_offers(adjusted_fmv, expected_return)
+        offers = calculate_offers(adjusted_fmv, config)
+        purchase_return = offers['purchase_return']
+        wholesale_return = offers['wholesale_return']
         
         # Show seller finance if conditions are met
         show_seller_finance = (can_subdivide or can_add_road or can_admin_split or fmv_input >= 400000)
@@ -398,7 +421,7 @@ def main():
                     key="sf_percentage"
                 ) / 100
                 
-                sf_price = calculate_seller_finance(adjusted_fmv, expected_return, sf_percentage)
+                sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage)
                 
                 st.markdown(f"""
                     <div class="offer-card finance-offer">
@@ -428,7 +451,8 @@ def main():
                 - Fair Market Value: ${fmv_input:,.0f}
                 - Adjustments: ${total_adjustments:,.0f}
                 - Adjusted FMV: ${adjusted_fmv:,.0f}
-                - Expected Return: ${expected_return:,.0f}
+                - Purchase Expected Return: ${purchase_return:,.0f}
+                - Wholesale Expected Return: ${wholesale_return:,.0f}
                 - Acreage: {acreage} acres
                 - Price per Acre: ${(adjusted_fmv/acreage if acreage > 0 else 0):,.0f}
             """)
@@ -447,7 +471,8 @@ def main():
                         'septic': septic_adjustment,
                         'manual_adj': manual_adjustment,
                         'adjusted_fmv': adjusted_fmv,
-                        'expected_return': expected_return,
+                        'purchase_return': purchase_return,
+                        'wholesale_return': wholesale_return,
                         'purchase_price': offers['purchase'],
                         'wholesale_price': offers['wholesale'],
                         'can_subdivide': can_subdivide,
