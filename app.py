@@ -156,47 +156,55 @@ def load_google_sheets_config():
         creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scope)
         client = gspread.authorize(creds)
         
-        # Open the sheet and worksheet
+        # Open the spreadsheet
         spreadsheet = client.open(SHEET_NAME)
-        sheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
-        # Get all values - this should return a list, not a Response object
-        data = sheet.get_all_values()
+        # Get the worksheet
+        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
-        # Make sure we got actual data, not a response object
-        if not isinstance(data, list):
-            raise ValueError(f"Expected list, got {type(data)}")
+        # Try different method to get all records
+        records = worksheet.get_all_records()
         
-        # Skip header row (row 1), start from row 2
-        thresholds = []
-        purchase_returns = []
-        wholesale_returns = []
-        
-        for i in range(1, len(data)):  # Start from 1 to skip header
-            if len(data[i]) >= 3 and data[i][0]:  # Make sure row has at least 3 columns
-                try:
-                    threshold = float(data[i][0]) * 1000  # Column A (FMV in thousands)
-                    purchase_return = float(data[i][1]) if data[i][1] else 0  # Column B
-                    wholesale_return = float(data[i][2]) if data[i][2] else 0  # Column C
-                    
-                    thresholds.append(threshold)
-                    purchase_returns.append(purchase_return)
-                    wholesale_returns.append(wholesale_return)
-                except ValueError:
-                    continue  # Skip rows with invalid data
+        if len(records) == 0:
+            # If no records, try get_all_values
+            all_values = worksheet.col_values(1)  # Get column A
+            purchase_col = worksheet.col_values(2)  # Get column B  
+            wholesale_col = worksheet.col_values(3)  # Get column C
+            
+            thresholds = []
+            purchase_returns = []
+            wholesale_returns = []
+            
+            # Skip header, process from row 2
+            for i in range(1, min(len(all_values), len(purchase_col), len(wholesale_col))):
+                if all_values[i]:
+                    thresholds.append(float(all_values[i]) * 1000)
+                    purchase_returns.append(float(purchase_col[i]) if purchase_col[i] else 0)
+                    wholesale_returns.append(float(wholesale_col[i]) if wholesale_col[i] else 0)
+        else:
+            # Process records if we got them
+            thresholds = []
+            purchase_returns = []
+            wholesale_returns = []
+            
+            for record in records:
+                if 'FMV' in record:
+                    thresholds.append(float(record['FMV']) * 1000)
+                    purchase_returns.append(float(record.get('Purchase Expected Return', 0)))
+                    wholesale_returns.append(float(record.get('Wholesale Expected Return', 0)))
         
         if len(thresholds) == 0:
-            raise ValueError("No valid data found in sheet")
-        
+            raise ValueError("No data found")
+            
         return {
-            'thresholds': thresholds, 
+            'thresholds': thresholds,
             'purchase_returns': purchase_returns,
             'wholesale_returns': wholesale_returns
         }
-    
+        
     except Exception as e:
         st.warning(f"Could not load Google Sheets config: {e}. Using defaults.")
-        # Return your default values
+        # Return defaults
         return {
             'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
                           60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
