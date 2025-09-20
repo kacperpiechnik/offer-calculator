@@ -145,7 +145,6 @@ def load_from_db(deal_id):
         return None
 
 # ============= GOOGLE SHEETS FUNCTIONS =============
-@st.cache_data(ttl=300)  
 def load_google_sheets_config():
     """Load configuration from Google Sheets"""
     try:
@@ -162,6 +161,13 @@ def load_google_sheets_config():
         # Get all values
         data = sheet.get_all_values()
         
+        # DEBUG: Show what we're getting
+        st.write(f"DEBUG: Got {len(data)} rows from sheet")
+        if len(data) > 0:
+            st.write(f"DEBUG: First row: {data[0][:3]}")
+        if len(data) > 1:
+            st.write(f"DEBUG: Second row: {data[1][:3]}")
+        
         # Skip header row (row 1), start from row 2
         thresholds = []
         purchase_returns = []
@@ -176,6 +182,8 @@ def load_google_sheets_config():
                 thresholds.append(threshold)
                 purchase_returns.append(purchase_return)
                 wholesale_returns.append(wholesale_return)
+        
+        st.write(f"DEBUG: Loaded {len(thresholds)} thresholds")
         
         return {
             'thresholds': thresholds, 
