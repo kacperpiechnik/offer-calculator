@@ -145,6 +145,7 @@ def load_from_db(deal_id):
         return None
 
 # ============= GOOGLE SHEETS FUNCTIONS =============
+@st.cache_data(ttl=300)  
 def load_google_sheets_config():
     """Load configuration from Google Sheets"""
     try:
@@ -155,18 +156,16 @@ def load_google_sheets_config():
         creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scope)
         client = gspread.authorize(creds)
         
-        # Open the sheet
-        sheet = client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+        # Open the sheet and worksheet
+        spreadsheet = client.open(SHEET_NAME)
+        sheet = spreadsheet.worksheet(WORKSHEET_NAME)
         
-        # Get all values
+        # Get all values - this should return a list, not a Response object
         data = sheet.get_all_values()
         
-        # DEBUG: Show what we're getting
-        st.write(f"DEBUG: Got {len(data)} rows from sheet")
-        if len(data) > 0:
-            st.write(f"DEBUG: First row: {data[0][:3]}")
-        if len(data) > 1:
-            st.write(f"DEBUG: Second row: {data[1][:3]}")
+        # Make sure we got actual data, not a response object
+        if not isinstance(data, list):
+            raise ValueError(f"Expected list, got {type(data)}")
         
         # Skip header row (row 1), start from row 2
         thresholds = []
@@ -174,16 +173,20 @@ def load_google_sheets_config():
         wholesale_returns = []
         
         for i in range(1, len(data)):  # Start from 1 to skip header
-            if data[i][0]:  # If there's a value in column A
-                threshold = float(data[i][0]) * 1000  # Column A (FMV in thousands)
-                purchase_return = float(data[i][1]) if data[i][1] else 0  # Column B
-                wholesale_return = float(data[i][2]) if data[i][2] else 0  # Column C
-                
-                thresholds.append(threshold)
-                purchase_returns.append(purchase_return)
-                wholesale_returns.append(wholesale_return)
+            if len(data[i]) >= 3 and data[i][0]:  # Make sure row has at least 3 columns
+                try:
+                    threshold = float(data[i][0]) * 1000  # Column A (FMV in thousands)
+                    purchase_return = float(data[i][1]) if data[i][1] else 0  # Column B
+                    wholesale_return = float(data[i][2]) if data[i][2] else 0  # Column C
+                    
+                    thresholds.append(threshold)
+                    purchase_returns.append(purchase_return)
+                    wholesale_returns.append(wholesale_return)
+                except ValueError:
+                    continue  # Skip rows with invalid data
         
-        st.write(f"DEBUG: Loaded {len(thresholds)} thresholds")
+        if len(thresholds) == 0:
+            raise ValueError("No valid data found in sheet")
         
         return {
             'thresholds': thresholds, 
@@ -193,7 +196,7 @@ def load_google_sheets_config():
     
     except Exception as e:
         st.warning(f"Could not load Google Sheets config: {e}. Using defaults.")
-        # Fallback to your data
+        # Return your default values
         return {
             'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
                           60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
