@@ -161,7 +161,7 @@ def get_default_config():
 
 @st.cache_data(ttl=300)  
 def load_google_sheets_config():
-    """Load configuration from Google Sheets - silent version"""
+    """Load configuration from Google Sheets - with proper scaling"""
     try:
         # Authenticate with Google Sheets
         scope = ['https://spreadsheets.google.com/feeds',
@@ -226,6 +226,9 @@ def load_google_sheets_config():
         
         start_row = 1 if has_headers else 0
         
+        # Flag to determine if values need scaling
+        needs_scaling = False
+        
         # Process data rows
         for i in range(start_row, len(all_values)):
             row = all_values[i]
@@ -239,8 +242,12 @@ def load_google_sheets_config():
                 fmv_str = str(row[0]).replace(',', '').replace('$', '').strip()
                 fmv_value = float(fmv_str)
                 
-                # Multiply by 1000 if values are in thousands
-                if fmv_value < 1000:
+                # Determine if we need to scale based on first value
+                if len(thresholds) == 0 and fmv_value > 0 and fmv_value < 1000:
+                    needs_scaling = True
+                
+                # Scale FMV if needed
+                if needs_scaling:
                     fmv_value *= 1000
                 
                 thresholds.append(fmv_value)
@@ -250,6 +257,9 @@ def load_google_sheets_config():
                 if len(row) > 1 and row[1] and str(row[1]).strip():
                     purchase_str = str(row[1]).replace(',', '').replace('$', '').strip()
                     purchase_value = float(purchase_str)
+                    # IMPORTANT: Also scale the returns if FMV was scaled
+                    if needs_scaling:
+                        purchase_value *= 1000
                 purchase_returns.append(purchase_value)
                 
                 # Column C: Wholesale Expected Return
@@ -257,6 +267,9 @@ def load_google_sheets_config():
                 if len(row) > 2 and row[2] and str(row[2]).strip():
                     wholesale_str = str(row[2]).replace(',', '').replace('$', '').strip()
                     wholesale_value = float(wholesale_str)
+                    # IMPORTANT: Also scale the returns if FMV was scaled
+                    if needs_scaling:
+                        wholesale_value *= 1000
                 wholesale_returns.append(wholesale_value)
                     
             except ValueError:
@@ -493,6 +506,47 @@ def main():
         
         # Show seller finance if conditions are met
         show_seller_finance = (can_subdivide or can_add_road or can_admin_split or fmv_input >= 400000)
+
+            # Debug info (remove this in production)
+        with st.expander("🔍 Calculation Verification"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Input Values:**")
+                st.write(f"- Original FMV: ${fmv_input:,.0f}")
+                st.write(f"- Adjustments: ${total_adjustments:,.0f}")
+                st.write(f"- Adjusted FMV: ${adjusted_fmv:,.0f}")
+                
+                st.write("\n**Threshold Lookup:**")
+                # Show which threshold was matched
+                for i in range(len(config['thresholds']) - 1, -1, -1):
+                    if adjusted_fmv >= config['thresholds'][i]:
+                        st.write(f"- Matched threshold: ${config['thresholds'][i]:,.0f}")
+                        st.write(f"- Purchase Return: ${config['purchase_returns'][i]:,.0f}")
+                        st.write(f"- Wholesale Return: ${config['wholesale_returns'][i]:,.0f}")
+                        break
+            
+            with col2:
+                st.write("**Calculation Formulas:**")
+                st.write(f"**Purchase Price:**")
+                st.code(f"({adjusted_fmv:,.0f} × 0.94 - {purchase_return:,.0f}) ÷ 1.0525 = ${offers['purchase']:,.0f}")
+                
+                st.write(f"**Wholesale Price:**")
+                st.code(f"{adjusted_fmv:,.0f} × 0.94 - 2,500 - {wholesale_return:,.0f} = ${offers['wholesale']:,.0f}")
+                
+                st.write(f"**Expected Profit:**")
+                profit_calc = adjusted_fmv * 0.94 - 3500 - offers['purchase'] * 1.0525
+                st.code(f"{adjusted_fmv:,.0f} × 0.94 - 3,500 - ({offers['purchase']:,.0f} × 1.0525) = ${profit_calc:,.0f}")
+            
+            # Show the loaded data from sheets
+            if st.checkbox("Show Google Sheets Data"):
+                df = pd.DataFrame({
+                    'FMV Threshold': config['thresholds'],
+                    'Purchase Return': config['purchase_returns'],
+                    'Wholesale Return': config['wholesale_returns']
+                })
+                st.dataframe(df)
+        # ========== END OF DEBUG SECTION ==========
         
         st.markdown('<div class="section-header">Calculated Offers</div>', unsafe_allow_html=True)
         
