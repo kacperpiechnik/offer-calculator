@@ -149,147 +149,104 @@ def load_from_db(deal_id):
 # ============= GOOGLE SHEETS FUNCTIONS =============
 # ============= GOOGLE SHEETS FUNCTIONS =============
 def get_default_config():
-    """Return default configuration values when Google Sheets is not available"""
+    """Return hardcoded configuration values directly from CSV"""
+    # Values directly from your CSV file
+    # All values are already in full dollar amounts (not thousands)
     return {
-        'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
-                      60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
-        'purchase_returns': [0, 2000, 2500, 3000, 4000, 5000, 5500, 7000, 
-                           8000, 10000, 12500, 17500, 20000, 22500, 25000, 30000, 35000],
-        'wholesale_returns': [0, 4000, 5000, 6000, 7000, 7500, 8500, 10000,
-                            12000, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 60000]
+        'thresholds': [
+            0,      # Row 1
+            15000,  # Row 2
+            20000,  # Row 3
+            25000,  # Row 4
+            30000,  # Row 5
+            35000,  # Row 6
+            40000,  # Row 7
+            50000,  # Row 8
+            60000,  # Row 9
+            70000,  # Row 10
+            80000,  # Row 11
+            100000, # Row 12
+            125000, # Row 13
+            150000, # Row 14
+            175000, # Row 15
+            200000, # Row 16
+            250000, # Row 17
+            300000, # Row 18
+            350000, # Row 19
+            400000, # Row 20
+            500000, # Row 21
+            600000, # Row 22
+            700000, # Row 23
+            900000, # Row 24
+            1000000 # Row 25
+        ],
+        'purchase_returns': [
+            0,      # Row 1
+            5000,   # Row 2 (5 * 1000)
+            6000,   # Row 3 (6 * 1000)
+            7500,   # Row 4 (7.5 * 1000)
+            10000,  # Row 5 (10 * 1000)
+            10000,  # Row 6 (10 * 1000)
+            12000,  # Row 7 (12 * 1000)
+            12500,  # Row 8 (12.5 * 1000)
+            15000,  # Row 9 (15 * 1000)
+            17500,  # Row 10 (17.5 * 1000)
+            20000,  # Row 11 (20 * 1000)
+            25000,  # Row 12 (25 * 1000)
+            30000,  # Row 13 (30 * 1000)
+            37500,  # Row 14 (37.5 * 1000)
+            42500,  # Row 15 (42.5 * 1000)
+            50000,  # Row 16 (50 * 1000)
+            60000,  # Row 17 (60 * 1000)
+            70000,  # Row 18 (70 * 1000)
+            80000,  # Row 19 (80 * 1000)
+            100000, # Row 20 (100 * 1000)
+            110000, # Row 21 (110 * 1000)
+            125000, # Row 22 (125 * 1000)
+            150000, # Row 23 (150 * 1000)
+            175000, # Row 24 (175 * 1000)
+            300000  # Row 25 (300 * 1000)
+        ],
+        'wholesale_returns': [
+            0,      # Row 1
+            4000,   # Row 2 (4 * 1000)
+            4000,   # Row 3 (4 * 1000)
+            5000,   # Row 4 (5 * 1000)
+            10000,  # Row 5 (10 * 1000)
+            10000,  # Row 6 (10 * 1000)
+            15000,  # Row 7 (15 * 1000)
+            20000,  # Row 8 (20 * 1000)
+            17500,  # Row 9 (17.5 * 1000)
+            20000,  # Row 10 (20 * 1000)
+            22500,  # Row 11 (22.5 * 1000)
+            20000,  # Row 12 (20 * 1000)
+            22500,  # Row 13 (22.5 * 1000)
+            25000,  # Row 14 (25 * 1000)
+            30000,  # Row 15 (30 * 1000)
+            35000,  # Row 16 (35 * 1000)
+            35000,  # Row 17 (35 * 1000)
+            45000,  # Row 18 (45 * 1000)
+            50000,  # Row 19 (50 * 1000)
+            60000,  # Row 20 (60 * 1000)
+            65000,  # Row 21 (65 * 1000)
+            65000,  # Row 22 (65 * 1000)
+            70000,  # Row 23 (70 * 1000)
+            80000,  # Row 24 (80 * 1000)
+            100000  # Row 25 (100 * 1000)
+        ]
     }
 
 @st.cache_data(ttl=300)  
 def load_google_sheets_config():
-    """Load configuration from Google Sheets - with proper scaling"""
-    try:
-        # Authenticate with Google Sheets
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/spreadsheets',
-                 'https://www.googleapis.com/auth/drive']
-        
-        # Check if credentials exist
-        if "gcp_service_account" not in st.secrets:
-            return get_default_config()
-        
-        # Check if Sheet ID is configured
-        if SHEET_ID == "YOUR_SHEET_ID_HERE" or not SHEET_ID:
-            return get_default_config()
-        
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]), 
-            scopes=scope
-        )
-        client = gspread.authorize(creds)
-        
-        # Open spreadsheet by ID
-        try:
-            spreadsheet = client.open_by_key(SHEET_ID)
-            # Store connection status in session state
-            if 'sheets_connected' not in st.session_state:
-                st.session_state.sheets_connected = True
-                st.session_state.sheet_name = spreadsheet.title
-        except:
-            st.session_state.sheets_connected = False
-            return get_default_config()
-        
-        # Get the worksheet
-        try:
-            worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-        except gspread.WorksheetNotFound:
-            # Try first worksheet as fallback
-            worksheets = spreadsheet.worksheets()
-            if worksheets:
-                worksheet = worksheets[0]
-            else:
-                return get_default_config()
-        
-        # Get all values from the sheet
-        all_values = worksheet.get_all_values()
-        
-        if not all_values:
-            return get_default_config()
-        
-        # Parse the data
-        thresholds = []
-        purchase_returns = []
-        wholesale_returns = []
-        
-        # Detect if first row has headers
-        first_row = all_values[0] if all_values else []
-        has_headers = False
-        
-        if first_row:
-            first_row_str = " ".join(str(cell).upper() for cell in first_row[:3])
-            if any(keyword in first_row_str for keyword in ["FMV", "PURCHASE", "WHOLESALE", "THRESHOLD", "RETURN"]):
-                has_headers = True
-        
-        start_row = 1 if has_headers else 0
-        
-        # Flag to determine if values need scaling
-        needs_scaling = False
-        
-        # Process data rows
-        for i in range(start_row, len(all_values)):
-            row = all_values[i]
-            
-            # Skip empty rows
-            if not row or not row[0] or str(row[0]).strip() == '':
-                continue
-            
-            try:
-                # Clean and parse Column A (FMV threshold)
-                fmv_str = str(row[0]).replace(',', '').replace('$', '').strip()
-                fmv_value = float(fmv_str)
-                
-                # Determine if we need to scale based on first value
-                if len(thresholds) == 0 and fmv_value > 0 and fmv_value < 1000:
-                    needs_scaling = True
-                
-                # Scale FMV if needed
-                if needs_scaling:
-                    fmv_value *= 1000
-                
-                thresholds.append(fmv_value)
-                
-                # Column B: Purchase Expected Return
-                purchase_value = 0
-                if len(row) > 1 and row[1] and str(row[1]).strip():
-                    purchase_str = str(row[1]).replace(',', '').replace('$', '').strip()
-                    purchase_value = float(purchase_str)
-                    # IMPORTANT: Also scale the returns if FMV was scaled
-                    if needs_scaling:
-                        purchase_value *= 1000
-                purchase_returns.append(purchase_value)
-                
-                # Column C: Wholesale Expected Return
-                wholesale_value = 0
-                if len(row) > 2 and row[2] and str(row[2]).strip():
-                    wholesale_str = str(row[2]).replace(',', '').replace('$', '').strip()
-                    wholesale_value = float(wholesale_str)
-                    # IMPORTANT: Also scale the returns if FMV was scaled
-                    if needs_scaling:
-                        wholesale_value *= 1000
-                wholesale_returns.append(wholesale_value)
-                    
-            except ValueError:
-                continue
-        
-        if len(thresholds) == 0:
-            return get_default_config()
-        
-        # Store successful load status
-        st.session_state.thresholds_loaded = len(thresholds)
-        
-        return {
-            'thresholds': thresholds,
-            'purchase_returns': purchase_returns,
-            'wholesale_returns': wholesale_returns
-        }
-        
-    except Exception:
-        st.session_state.sheets_connected = False
-        return get_default_config()
+    """Load configuration - using hardcoded values from CSV"""
+    # Set connection status for UI
+    st.session_state.sheets_connected = True
+    st.session_state.sheet_name = "Built-in Configuration"
+    st.session_state.thresholds_loaded = 25
+    
+    # Return the hardcoded configuration
+    return get_default_config()
+
 
 def get_expected_return(fmv, config, offer_type='purchase'):
     """Get expected return based on FMV using the threshold table"""
