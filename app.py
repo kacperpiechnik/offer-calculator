@@ -145,135 +145,11 @@ def load_from_db(deal_id):
         return None
 
 
-# Add this debug function to test the connection
-def test_google_sheets_connection():
-    """Test Google Sheets connection with detailed debugging"""
-    st.subheader("🔍 Google Sheets Connection Debugger")
-    
-    try:
-        # Step 1: Check credentials
-        st.write("**Step 1: Checking credentials...**")
-        if "gcp_service_account" not in st.secrets:
-            st.error("❌ No service account credentials found in secrets!")
-            st.stop()
-        else:
-            st.success("✓ Service account credentials found")
-            
-            # Show service account email
-            service_account_info = dict(st.secrets["gcp_service_account"])
-            if "client_email" in service_account_info:
-                st.info(f"Service Account: {service_account_info['client_email']}")
-        
-        # Step 2: Authenticate
-        st.write("**Step 2: Authenticating...**")
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/spreadsheets',
-                 'https://www.googleapis.com/auth/drive']
-        
-        creds = Credentials.from_service_account_info(
-            service_account_info, 
-            scopes=scope
-        )
-        client = gspread.authorize(creds)
-        st.success("✓ Authentication successful")
-        
-        # Step 3: List accessible sheets (optional)
-        st.write("**Step 3: Testing access...**")
-        try:
-            all_sheets = client.openall()
-            st.success(f"✓ Can access {len(all_sheets)} spreadsheets")
-            
-            # Show sheet names
-            with st.expander("View accessible sheets"):
-                for sheet in all_sheets[:10]:  # Show first 10
-                    st.write(f"- {sheet.title}")
-                if len(all_sheets) > 10:
-                    st.write(f"... and {len(all_sheets) - 10} more")
-        except Exception as e:
-            st.warning(f"Could not list sheets: {e}")
-        
-        # Step 4: Try to open the specific sheet
-        st.write("**Step 4: Opening your specific sheet...**")
-        st.code(f"Sheet ID: {SHEET_ID}")
-        
-        try:
-            spreadsheet = client.open_by_key(SHEET_ID)
-            st.success(f"✓ Successfully opened sheet: {spreadsheet.title}")
-            
-            # List worksheets
-            worksheets = spreadsheet.worksheets()
-            st.write(f"Found {len(worksheets)} worksheet(s):")
-            for ws in worksheets:
-                st.write(f"- '{ws.title}'")
-            
-            # Try to access the 'logic' worksheet
-            if WORKSHEET_NAME in [ws.title for ws in worksheets]:
-                worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-                st.success(f"✓ Found worksheet '{WORKSHEET_NAME}'")
-                
-                # Show preview
-                all_values = worksheet.get_all_values()
-                st.write(f"Sheet contains {len(all_values)} rows")
-                
-                if all_values:
-                    st.write("**Preview (first 3 rows):**")
-                    for i, row in enumerate(all_values[:3]):
-                        st.write(f"Row {i+1}: {row[:5]}")  # Show first 5 columns
-            else:
-                st.error(f"❌ Worksheet '{WORKSHEET_NAME}' not found!")
-                st.info(f"Available worksheets: {[ws.title for ws in worksheets]}")
-                
-        except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ Spreadsheet not found!")
-            st.info("This usually means:")
-            st.info("1. The sheet ID is incorrect, OR")
-            st.info("2. The sheet is not shared with the service account")
-            
-        except gspread.exceptions.APIError as e:
-            error_msg = str(e)
-            if "403" in error_msg or "PERMISSION_DENIED" in error_msg:
-                st.error("❌ Permission denied!")
-                st.warning("**To fix this:**")
-                st.info("1. Open your Google Sheet")
-                st.info("2. Click the Share button")
-                st.info("3. Add this email: principal-acres-script-kpi-tra@database-project-468600.iam.gserviceaccount.com")
-                st.info("4. Give it 'Editor' or 'Viewer' access")
-                st.info("5. Click Share (uncheck 'Notify people')")
-            elif "404" in error_msg:
-                st.error("❌ Sheet not found (404)")
-                st.info("Check that the Sheet ID is correct")
-            else:
-                st.error(f"❌ API Error: {error_msg}")
-                
-        except Exception as e:
-            st.error(f"❌ Unexpected error: {e}")
-            st.exception(e)
-            
-    except Exception as e:
-        st.error(f"❌ Connection test failed: {e}")
-        st.exception(e)
 
-# Add this to your main() function, right after init_db():
-def main():
-    # Initialize database
-    init_db()
-    
-    # Add debug mode toggle in sidebar
-    with st.sidebar:
-        debug_mode = st.checkbox("🔧 Debug Google Sheets Connection")
-        
-        if debug_mode:
-            test_google_sheets_connection()
-            st.stop()  # Stop here when in debug mode
-    
-    # Rest of your main() function continues...
-    # Load config from Google Sheets
-    config = load_google_sheets_config()
-
+# ============= GOOGLE SHEETS FUNCTIONS =============
 # ============= GOOGLE SHEETS FUNCTIONS =============
 def get_default_config():
     """Return default configuration values when Google Sheets is not available"""
-    st.warning("⚠️ Using default values - Google Sheets not connected")
     return {
         'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
                       60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
@@ -285,7 +161,7 @@ def get_default_config():
 
 @st.cache_data(ttl=300)  
 def load_google_sheets_config():
-    """Load configuration from Google Sheets using direct Sheet ID"""
+    """Load configuration from Google Sheets - silent version"""
     try:
         # Authenticate with Google Sheets
         scope = ['https://spreadsheets.google.com/feeds',
@@ -294,15 +170,10 @@ def load_google_sheets_config():
         
         # Check if credentials exist
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ Missing gcp_service_account in Streamlit secrets!")
-            st.info("Add your service account JSON to Streamlit secrets under 'gcp_service_account'")
             return get_default_config()
         
         # Check if Sheet ID is configured
         if SHEET_ID == "YOUR_SHEET_ID_HERE" or not SHEET_ID:
-            st.error("❌ Google Sheet ID not configured!")
-            st.info("Add GOOGLE_SHEET_ID to your Streamlit secrets, or update the SHEET_ID variable in the code")
-            st.info("Find your Sheet ID in the URL: docs.google.com/spreadsheets/d/[SHEET_ID]/edit")
             return get_default_config()
         
         creds = Credentials.from_service_account_info(
@@ -311,65 +182,33 @@ def load_google_sheets_config():
         )
         client = gspread.authorize(creds)
         
-        # Open spreadsheet by ID (more reliable than by name)
+        # Open spreadsheet by ID
         try:
             spreadsheet = client.open_by_key(SHEET_ID)
-            st.success(f"✓ Connected to Google Sheet")
-            
-            # Try to get sheet title for confirmation
-            try:
-                sheet_title = spreadsheet.title
-                st.info(f"Sheet name: {sheet_title}")
-            except:
-                pass
-                
-        except gspread.exceptions.APIError as e:
-            if "403" in str(e):
-                st.error("❌ Permission denied! Sheet is not shared with service account.")
-                st.info("Share your sheet with: principal-acres-script-kpi-tra@database-project-468600.iam.gserviceaccount.com")
-            else:
-                st.error(f"❌ API Error: {e}")
-            return get_default_config()
-        except Exception as e:
-            st.error(f"❌ Could not open sheet with ID: {SHEET_ID}")
-            st.error(f"Error: {e}")
+            # Store connection status in session state
+            if 'sheets_connected' not in st.session_state:
+                st.session_state.sheets_connected = True
+                st.session_state.sheet_name = spreadsheet.title
+        except:
+            st.session_state.sheets_connected = False
             return get_default_config()
         
         # Get the worksheet
-        worksheet = None
         try:
             worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
-            st.success(f"✓ Found worksheet: '{WORKSHEET_NAME}'")
         except gspread.WorksheetNotFound:
-            # List all available worksheets
-            worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
-            st.warning(f"❌ Worksheet '{WORKSHEET_NAME}' not found!")
-            st.info(f"Available worksheets: {worksheet_names}")
-            
-            # Try to use the first worksheet as fallback
-            if worksheet_names:
-                worksheet = spreadsheet.worksheet(worksheet_names[0])
-                st.info(f"Using worksheet: '{worksheet_names[0]}'")
+            # Try first worksheet as fallback
+            worksheets = spreadsheet.worksheets()
+            if worksheets:
+                worksheet = worksheets[0]
             else:
-                st.error("No worksheets found in the spreadsheet!")
                 return get_default_config()
         
         # Get all values from the sheet
         all_values = worksheet.get_all_values()
         
         if not all_values:
-            st.error("❌ Sheet is empty!")
             return get_default_config()
-        
-        # Show sheet info for debugging
-        st.info(f"📊 Sheet has {len(all_values)} rows × {len(all_values[0]) if all_values else 0} columns")
-        
-        # Show first few rows to help debug structure
-        with st.expander("🔍 Preview sheet data (first 5 rows)"):
-            for i, row in enumerate(all_values[:5]):
-                # Show only first 3 columns to keep it clean
-                preview = row[:3] if len(row) >= 3 else row
-                st.write(f"Row {i+1}: {preview}")
         
         # Parse the data
         thresholds = []
@@ -380,25 +219,19 @@ def load_google_sheets_config():
         first_row = all_values[0] if all_values else []
         has_headers = False
         
-        # Check for common header keywords
         if first_row:
             first_row_str = " ".join(str(cell).upper() for cell in first_row[:3])
             if any(keyword in first_row_str for keyword in ["FMV", "PURCHASE", "WHOLESALE", "THRESHOLD", "RETURN"]):
                 has_headers = True
-                st.info(f"📋 Headers detected: {first_row[:3]}")
         
         start_row = 1 if has_headers else 0
         
         # Process data rows
-        rows_processed = 0
-        rows_skipped = 0
-        
         for i in range(start_row, len(all_values)):
             row = all_values[i]
             
             # Skip empty rows
             if not row or not row[0] or str(row[0]).strip() == '':
-                rows_skipped += 1
                 continue
             
             try:
@@ -406,11 +239,7 @@ def load_google_sheets_config():
                 fmv_str = str(row[0]).replace(',', '').replace('$', '').strip()
                 fmv_value = float(fmv_str)
                 
-                # Auto-detect if values need to be multiplied by 1000
-                # (if the first valid value is less than 1000, assume it's in thousands)
-                if rows_processed == 0 and fmv_value < 1000:
-                    st.info("💡 Values appear to be in thousands, multiplying by 1000")
-                
+                # Multiply by 1000 if values are in thousands
                 if fmv_value < 1000:
                     fmv_value *= 1000
                 
@@ -429,34 +258,15 @@ def load_google_sheets_config():
                     wholesale_str = str(row[2]).replace(',', '').replace('$', '').strip()
                     wholesale_value = float(wholesale_str)
                 wholesale_returns.append(wholesale_value)
-                
-                rows_processed += 1
                     
-            except ValueError as e:
-                st.warning(f"⚠️ Could not parse row {i+1}: {row[:3]} - Skipping...")
-                rows_skipped += 1
+            except ValueError:
                 continue
         
         if len(thresholds) == 0:
-            st.error("❌ No valid data found in sheet!")
-            st.info("Make sure your sheet has numeric values in columns A, B, and C")
             return get_default_config()
         
-        st.success(f"✅ Successfully loaded {len(thresholds)} threshold levels")
-        if rows_skipped > 0:
-            st.info(f"Skipped {rows_skipped} invalid/empty rows")
-        
-        # Show summary of loaded data
-        with st.expander("📊 Loaded data summary"):
-            st.write(f"**Data range:**")
-            st.write(f"- FMV: ${min(thresholds):,.0f} to ${max(thresholds):,.0f}")
-            st.write(f"- Purchase returns: ${min(purchase_returns):,.0f} to ${max(purchase_returns):,.0f}")
-            st.write(f"- Wholesale returns: ${min(wholesale_returns):,.0f} to ${max(wholesale_returns):,.0f}")
-            
-            # Show first few entries
-            st.write("\n**First 3 entries:**")
-            for i in range(min(3, len(thresholds))):
-                st.write(f"{i+1}. FMV ${thresholds[i]:,.0f} → Purchase ${purchase_returns[i]:,.0f}, Wholesale ${wholesale_returns[i]:,.0f}")
+        # Store successful load status
+        st.session_state.thresholds_loaded = len(thresholds)
         
         return {
             'thresholds': thresholds,
@@ -464,9 +274,8 @@ def load_google_sheets_config():
             'wholesale_returns': wholesale_returns
         }
         
-    except Exception as e:
-        st.error(f"❌ Unexpected error loading Google Sheets: {str(e)}")
-        st.exception(e)  # Show full traceback for debugging
+    except Exception:
+        st.session_state.sheets_connected = False
         return get_default_config()
 
 def get_expected_return(fmv, config, offer_type='purchase'):
@@ -538,23 +347,37 @@ def push_to_pipedrive(deal_id, data):
 
 # ============= MAIN APP =============
 # ============= MAIN APP =============
+# ============= MAIN APP =============
 def main():
     # Initialize database
     init_db()
     
-    # Add debug mode toggle in sidebar
-    with st.sidebar:
-        st.markdown("### 🛠️ Debug Tools")
-        debug_mode = st.checkbox("Debug Google Sheets Connection")
-        
-        if debug_mode:
-            test_google_sheets_connection()
-            st.markdown("---")
-            st.info("Debug mode is ON. Uncheck to use the calculator.")
-            st.stop()  # Stop here when in debug mode
-    
-    # Load config from Google Sheets
+    # Load config from Google Sheets (silent)
     config = load_google_sheets_config()
+    
+    # Sidebar with connection status
+    with st.sidebar:
+        st.markdown("### 📊 System Status")
+        
+        # Google Sheets connection indicator
+        if st.session_state.get('sheets_connected', False):
+            st.success("✓ Connected to Google Sheets")
+            if st.session_state.get('thresholds_loaded', 0) > 0:
+                st.caption(f"Loaded {st.session_state.get('thresholds_loaded', 0)} price tiers")
+        else:
+            st.warning("⚠ Using default values")
+            st.caption("Google Sheets not connected")
+        
+        # Database connection indicator
+        if DATABASE_URL:
+            st.success("✓ Database connected")
+        else:
+            st.info("ℹ Database not configured")
+        
+        st.markdown("---")
+        
+        # Add any other sidebar options here
+        # For example: Settings, Export options, etc.
     
     # Get deal_id from URL
     query_params = st.query_params
@@ -565,7 +388,8 @@ def main():
     with col1:
         st.title("🏞️ Land Offer Calculator")
     with col2:
-        deal_id_input = st.text_input("Deal ID", value=deal_id, key="deal_id_input")
+        deal_id_input = st.text_input("Deal ID", value=deal_id, key="deal_id_input", 
+                                     placeholder="Enter Deal ID")
         if deal_id_input != deal_id:
             st.query_params['deal_id'] = deal_id_input
             deal_id = deal_id_input
@@ -573,13 +397,15 @@ def main():
         if deal_id:
             existing_data = load_from_db(deal_id)
             if existing_data:
-                st.success("✓ Data Loaded")
+                st.success("✓ Loaded")
+                # Auto-populate session state with loaded data
+                st.session_state.data = existing_data
     
     # Initialize session state
     if 'data' not in st.session_state:
         st.session_state.data = {}
     
-    # Main content
+    # Main content tabs
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Property & Offers", "🏘️ Comps Analysis", "📐 Subdivision", "💰 Negotiation"])
     
     with tab1:
@@ -593,7 +419,8 @@ def main():
                 min_value=0,
                 value=int(st.session_state.data.get('fmv', 100000)),
                 step=1000,
-                key="fmv"
+                format="%d",
+                help="Enter the estimated fair market value of the property"
             )
             
             acreage = st.number_input(
@@ -601,7 +428,8 @@ def main():
                 min_value=0.0,
                 value=float(st.session_state.data.get('acreage', 5.0)),
                 step=0.1,
-                key="acreage"
+                format="%.2f",
+                help="Total acres of the property"
             )
         
         with col2:
@@ -609,19 +437,22 @@ def main():
             
             well_adjustment = st.checkbox(
                 "Existing Well (+$5,000)",
-                value=st.session_state.data.get('well', False)
+                value=st.session_state.data.get('well', False),
+                help="Check if property has an existing well"
             )
             
             septic_adjustment = st.checkbox(
                 "Existing Septic (+$5,000)",
-                value=st.session_state.data.get('septic', False)
+                value=st.session_state.data.get('septic', False),
+                help="Check if property has an existing septic system"
             )
             
             manual_adjustment = st.number_input(
                 "Other Adjustments ($)",
                 value=int(st.session_state.data.get('manual_adj', 0)),
                 step=500,
-                key="manual_adj"
+                format="%d",
+                help="Add any other value adjustments (positive or negative)"
             )
         
         with col3:
@@ -629,17 +460,20 @@ def main():
             
             can_subdivide = st.checkbox(
                 "Can Subdivide",
-                value=st.session_state.data.get('can_subdivide', False)
+                value=st.session_state.data.get('can_subdivide', False),
+                help="Property can be subdivided into multiple lots"
             )
             
             can_add_road = st.checkbox(
                 "Can Add Road Frontage",
-                value=st.session_state.data.get('can_add_road', False)
+                value=st.session_state.data.get('can_add_road', False),
+                help="Possible to add additional road frontage"
             )
             
             can_admin_split = st.checkbox(
                 "Administrative Split Possible",
-                value=st.session_state.data.get('can_admin_split', False)
+                value=st.session_state.data.get('can_admin_split', False),
+                help="Property qualifies for administrative split"
             )
         
         # Calculate adjusted FMV
@@ -699,9 +533,9 @@ def main():
                     "Seller Finance %",
                     min_value=80,
                     max_value=95,
-                    value=85,
+                    value=int(st.session_state.data.get('sf_percentage', 85) * 100) if 'sf_percentage' in st.session_state.data else 85,
                     step=5,
-                    key="sf_percentage"
+                    help="Percentage of FMV for seller financing"
                 ) / 100
                 
                 sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage)
@@ -715,13 +549,9 @@ def main():
                 """, unsafe_allow_html=True)
                 
                 # Show terms
-                st.markdown("""
-                    **Terms Options:**
-                    - 12-month interest-only, balloon
-                    - 5-7 year amortized
-                """)
+                st.caption("**Terms:** 12-month balloon or 5-7 year amortized")
             else:
-                st.info("Seller Finance not available (requires subdivision potential or $400k+ value)")
+                st.info("💡 Seller Finance available for properties $400k+ or with subdivision potential")
         
         # Summary section
         st.markdown('<div class="section-header">Summary</div>', unsafe_allow_html=True)
@@ -736,7 +566,7 @@ def main():
                 - Adjusted FMV: ${adjusted_fmv:,.0f}
                 - Purchase Expected Return: ${purchase_return:,.0f}
                 - Wholesale Expected Return: ${wholesale_return:,.0f}
-                - Acreage: {acreage} acres
+                - Acreage: {acreage:.2f} acres
                 - Price per Acre: ${(adjusted_fmv/acreage if acreage > 0 else 0):,.0f}
             """)
         
@@ -770,6 +600,8 @@ def main():
                     if save_to_db(deal_id, save_data):
                         st.success("✓ Saved successfully!")
                         st.session_state.data = save_data
+                    else:
+                        st.warning("Please enter a Deal ID to save")
             
             with col_push:
                 if st.button("📤 Push to Pipedrive", use_container_width=True):
@@ -847,8 +679,147 @@ def main():
                     acres_per_lot = acreage / lots_possible
                     st.metric("Acres per Lot", f"{acres_per_lot:.2f}")
         
-        # Rest of tab3 content...
-        # [Include the rest of your tab3 and tab4 content here]
+        # Administrative Split
+        st.subheader("📋 Administrative Split")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            admin_lots = st.number_input("Admin Split Lots Possible", min_value=0, value=0, step=1)
+        with col2:
+            if admin_lots > 0 and acreage > 0:
+                admin_acres_per_lot = acreage / admin_lots
+                st.metric("Acres per Lot (Admin)", f"{admin_acres_per_lot:.2f}")
+        
+        # Minor Split
+        st.subheader("📋 Minor Split")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            minor_lots = st.number_input("Minor Split Lots Possible", min_value=0, value=0, step=1)
+        with col2:
+            if minor_lots > 0 and acreage > 0:
+                minor_acres_per_lot = acreage / minor_lots
+                st.metric("Acres per Lot (Minor)", f"{minor_acres_per_lot:.2f}")
+        
+        # Subdivision Comps
+        st.subheader("💰 Subdivision Value Analysis")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Sold Subdivided Comp**")
+            subdiv_sold_ppa = st.number_input("Sold PPA for Subdivided ($)", min_value=0, step=100, key="subdiv_sold_ppa")
+            
+            if subdiv_sold_ppa > 0:
+                # Calculate values for each subdivision type
+                if 'lots_possible' in locals() and lots_possible > 0:
+                    road_value = lots_possible * acres_per_lot * subdiv_sold_ppa
+                    st.metric("Road Frontage Subdivision Value", f"${road_value:,.0f}")
+                
+                if admin_lots > 0:
+                    admin_value = admin_lots * admin_acres_per_lot * subdiv_sold_ppa
+                    st.metric("Admin Split Value", f"${admin_value:,.0f}")
+                
+                if minor_lots > 0:
+                    minor_value = minor_lots * minor_acres_per_lot * subdiv_sold_ppa
+                    st.metric("Minor Split Value", f"${minor_value:,.0f}")
+        
+        with col2:
+            st.write("**Active Subdivided Comp**")
+            subdiv_active_ppa = st.number_input("Active PPA for Subdivided ($)", min_value=0, step=100, key="subdiv_active_ppa")
+            
+            if subdiv_active_ppa > 0:
+                # Calculate values for each subdivision type
+                if 'lots_possible' in locals() and lots_possible > 0:
+                    road_value_active = lots_possible * acres_per_lot * subdiv_active_ppa
+                    st.metric("Road Subdivision Value (Active)", f"${road_value_active:,.0f}")
+                
+                if admin_lots > 0:
+                    admin_value_active = admin_lots * admin_acres_per_lot * subdiv_active_ppa
+                    st.metric("Admin Split Value (Active)", f"${admin_value_active:,.0f}")
+                
+                if minor_lots > 0:
+                    minor_value_active = minor_lots * minor_acres_per_lot * subdiv_active_ppa
+                    st.metric("Minor Split Value (Active)", f"${minor_value_active:,.0f}")
+    
+    with tab4:
+        st.markdown('<div class="section-header">Negotiation Tool</div>', unsafe_allow_html=True)
+        
+        st.subheader("🤝 Test Different Price Points")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Test Purchase Price**")
+            test_purchase = st.number_input(
+                "What if we offered ($):",
+                min_value=0,
+                value=int(offers['purchase']),
+                step=1000,
+                key="test_purchase"
+            )
+            
+            # Calculate profit at this price
+            test_profit = adjusted_fmv * 0.94 - 3500 - test_purchase * 1.0525
+            
+            if test_profit > 0:
+                st.success(f"✓ Profit: ${test_profit:,.0f}")
+                if test_purchase > 0:
+                    st.metric("ROI", f"{(test_profit/test_purchase*100):.1f}%")
+            else:
+                st.error(f"✗ Loss: ${abs(test_profit):,.0f}")
+            
+            # Show comparison to calculated price
+            difference = test_purchase - offers['purchase']
+            if abs(difference) > 1:  # Only show if meaningful difference
+                if difference > 0:
+                    st.warning(f"${difference:,.0f} above calculated price")
+                else:
+                    st.info(f"${abs(difference):,.0f} below calculated price")
+        
+        with col2:
+            st.write("**Test Wholesale Price**")
+            test_wholesale = st.number_input(
+                "What if we wholesaled at ($):",
+                min_value=0,
+                value=int(offers['wholesale']),
+                step=1000,
+                key="test_wholesale"
+            )
+            
+            # Calculate margin at this price
+            test_margin = adjusted_fmv * 0.94 - 2500 - test_wholesale
+            
+            if test_margin > 0:
+                st.success(f"✓ Margin: ${test_margin:,.0f}")
+                if test_wholesale > 0:
+                    st.metric("Margin %", f"{(test_margin/test_wholesale*100):.1f}%")
+            else:
+                st.error(f"✗ No margin")
+            
+            # Show comparison to calculated price
+            difference_w = test_wholesale - offers['wholesale']
+            if abs(difference_w) > 1:  # Only show if meaningful difference
+                if difference_w > 0:
+                    st.warning(f"${difference_w:,.0f} above calculated price")
+                else:
+                    st.info(f"${abs(difference_w):,.0f} below calculated price")
+        
+        # Quick adjustment buttons
+        st.subheader("⚡ Quick Adjustments")
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        adjustments = [-10, -5, 0, 5, 10]
+        for col, adj in zip([col1, col2, col3, col4, col5], adjustments):
+            with col:
+                button_label = "Reset" if adj == 0 else f"{adj:+}%"
+                if st.button(button_label, use_container_width=True):
+                    if adj == 0:
+                        st.info(f"Purchase: ${offers['purchase']:,.0f}")
+                        st.info(f"Wholesale: ${offers['wholesale']:,.0f}")
+                    else:
+                        st.info(f"Purchase: ${offers['purchase'] * (1 + adj/100):,.0f}")
+                        st.info(f"Wholesale: ${offers['wholesale'] * (1 + adj/100):,.0f}")
 
 if __name__ == "__main__":
     main()
