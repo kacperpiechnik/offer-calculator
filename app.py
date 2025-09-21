@@ -264,31 +264,44 @@ def get_expected_return(fmv, config, offer_type='purchase'):
     return 0
 
 # ============= CALCULATION FUNCTIONS =============
+# ============= CALCULATION FUNCTIONS =============
 def calculate_offers(fmv, config):
-    """Calculate the three offer prices based on formulas"""
+    """Calculate the offer prices based on NSP (Net Sales Price) formulas"""
     # Get expected returns for each offer type
     purchase_return = get_expected_return(fmv, config, 'purchase')
     wholesale_return = get_expected_return(fmv, config, 'wholesale')
     
-    # Purchase Price = (FMV × 0.94 - purchase_return) / 1.0525
-    purchase_price = (fmv * 0.94 - purchase_return) / 1.0525
+    # Calculate Net Sales Price (NSP)
+    nsp_purchase = fmv * 0.94 - 3500  # NSP Purchase = 0.94*FMV - 3.5k
+    nsp_wholesale = fmv * 0.94 - 2500  # NSP Wholesale = 0.94*FMV - 2.5k
     
-    # Wholesale Price = FMV × 0.94 - 2500 - wholesale_return
-    wholesale_price = fmv * 0.94 - 2500 - wholesale_return
+    # Calculate offer prices
+    # Purchase = (NSP Purchase - Expected Purchase Return) / 1.0525
+    purchase_price = (nsp_purchase - purchase_return) / 1.0525
+    
+    # Wholesale = NSP Wholesale - Expected Wholesale Return
+    wholesale_price = nsp_wholesale - wholesale_return
     
     return {
         'purchase': max(0, purchase_price),
         'wholesale': max(0, wholesale_price),
         'purchase_return': purchase_return,
-        'wholesale_return': wholesale_return
+        'wholesale_return': wholesale_return,
+        'nsp_purchase': nsp_purchase,
+        'nsp_wholesale': nsp_wholesale
     }
 
 def calculate_seller_finance(value, config, percentage=0.85):
     """Calculate seller finance offer"""
     # Get the purchase expected return for this value
     purchase_return = get_expected_return(value, config, 'purchase')
-    # Seller Finance = value × percentage × 0.94 - 3500 - purchase_return
-    seller_finance = value * percentage * 0.94 - 3500 - purchase_return
+    
+    # Calculate NSP for seller finance (same as purchase NSP)
+    nsp_seller_finance = value * percentage * 0.94 - 3500
+    
+    # Seller Finance = NSP - Expected Purchase Return (no division by 1.0525 for seller finance)
+    seller_finance = nsp_seller_finance - purchase_return
+    
     return max(0, seller_finance)
 
 # ============= PIPEDRIVE FUNCTIONS =============
@@ -510,7 +523,7 @@ def main():
         # Display offers
         col1, col2, col3 = st.columns(3)
         
-        with col1:
+         with col1:
             st.markdown(f"""
                 <div class="offer-card purchase-offer">
                     <div style="font-size: 18px;">Purchase Price</div>
@@ -519,10 +532,15 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
             
-            # Show profit calculation
-            profit = adjusted_fmv * 0.94 - 3500 - offers['purchase'] * 1.0525
-            profit_class = "profit-positive" if profit > 0 else "profit-negative"
-            st.markdown(f'<div class="{profit_class}">Expected Profit: ${profit:,.0f}</div>', unsafe_allow_html=True)
+            # Show expected return (this is your fixed profit target)
+            st.markdown(f'<div class="profit-positive">Target Return: ${purchase_return:,.0f}</div>', unsafe_allow_html=True)
+            
+            # Verify the calculation
+            actual_profit = offers['nsp_purchase'] - (offers['purchase'] * 1.0525)
+            if abs(actual_profit - purchase_return) < 1:  # Within $1 of target
+                st.caption("✓ Achieves target return")
+            else:
+                st.caption(f"Actual return: ${actual_profit:,.0f}")
         
         with col2:
             st.markdown(f"""
@@ -533,9 +551,15 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
             
-            # Show wholesale margin
-            margin = adjusted_fmv * 0.94 - 2500 - offers['wholesale']
-            st.markdown(f'<div class="profit-positive">Wholesale Margin: ${margin:,.0f}</div>', unsafe_allow_html=True)
+            # Show wholesale return target
+            st.markdown(f'<div class="profit-positive">Target Return: ${wholesale_return:,.0f}</div>', unsafe_allow_html=True)
+            
+            # Verify the calculation
+            actual_wholesale_return = offers['nsp_wholesale'] - offers['wholesale']
+            if abs(actual_wholesale_return - wholesale_return) < 1:  # Within $1 of target
+                st.caption("✓ Achieves target return")
+            else:
+                st.caption(f"Actual return: ${actual_wholesale_return:,.0f}")
         
         with col3:
             if show_seller_finance:
