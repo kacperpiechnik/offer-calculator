@@ -330,12 +330,11 @@ def push_to_pipedrive(deal_id, data):
 
 # ============= MAIN APP =============
 # ============= MAIN APP =============
-# ============= MAIN APP =============
 def main():
     # Initialize database
     init_db()
     
-    # Load config from Google Sheets (silent)
+    # Load config from Google Sheets (or hardcoded values)
     config = load_google_sheets_config()
     
     # Sidebar with connection status
@@ -344,12 +343,11 @@ def main():
         
         # Google Sheets connection indicator
         if st.session_state.get('sheets_connected', False):
-            st.success("✓ Connected to Google Sheets")
+            st.success("✓ Connected to Configuration")
             if st.session_state.get('thresholds_loaded', 0) > 0:
                 st.caption(f"Loaded {st.session_state.get('thresholds_loaded', 0)} price tiers")
         else:
             st.warning("⚠ Using default values")
-            st.caption("Google Sheets not connected")
         
         # Database connection indicator
         if DATABASE_URL:
@@ -358,9 +356,6 @@ def main():
             st.info("ℹ Database not configured")
         
         st.markdown("---")
-        
-        # Add any other sidebar options here
-        # For example: Settings, Export options, etc.
     
     # Get deal_id from URL
     query_params = st.query_params
@@ -381,7 +376,6 @@ def main():
             existing_data = load_from_db(deal_id)
             if existing_data:
                 st.success("✓ Loaded")
-                # Auto-populate session state with loaded data
                 st.session_state.data = existing_data
     
     # Initialize session state
@@ -476,54 +470,13 @@ def main():
         
         # Show seller finance if conditions are met
         show_seller_finance = (can_subdivide or can_add_road or can_admin_split or fmv_input >= 400000)
-
-            # Debug info (remove this in production)
-        with st.expander("🔍 Calculation Verification"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Input Values:**")
-                st.write(f"- Original FMV: ${fmv_input:,.0f}")
-                st.write(f"- Adjustments: ${total_adjustments:,.0f}")
-                st.write(f"- Adjusted FMV: ${adjusted_fmv:,.0f}")
-                
-                st.write("\n**Threshold Lookup:**")
-                # Show which threshold was matched
-                for i in range(len(config['thresholds']) - 1, -1, -1):
-                    if adjusted_fmv >= config['thresholds'][i]:
-                        st.write(f"- Matched threshold: ${config['thresholds'][i]:,.0f}")
-                        st.write(f"- Purchase Return: ${config['purchase_returns'][i]:,.0f}")
-                        st.write(f"- Wholesale Return: ${config['wholesale_returns'][i]:,.0f}")
-                        break
-            
-            with col2:
-                st.write("**Calculation Formulas:**")
-                st.write(f"**Purchase Price:**")
-                st.code(f"({adjusted_fmv:,.0f} × 0.94 - {purchase_return:,.0f}) ÷ 1.0525 = ${offers['purchase']:,.0f}")
-                
-                st.write(f"**Wholesale Price:**")
-                st.code(f"{adjusted_fmv:,.0f} × 0.94 - 2,500 - {wholesale_return:,.0f} = ${offers['wholesale']:,.0f}")
-                
-                st.write(f"**Expected Profit:**")
-                profit_calc = adjusted_fmv * 0.94 - 3500 - offers['purchase'] * 1.0525
-                st.code(f"{adjusted_fmv:,.0f} × 0.94 - 3,500 - ({offers['purchase']:,.0f} × 1.0525) = ${profit_calc:,.0f}")
-            
-            # Show the loaded data from sheets
-            if st.checkbox("Show Google Sheets Data"):
-                df = pd.DataFrame({
-                    'FMV Threshold': config['thresholds'],
-                    'Purchase Return': config['purchase_returns'],
-                    'Wholesale Return': config['wholesale_returns']
-                })
-                st.dataframe(df)
-        # ========== END OF DEBUG SECTION ==========
         
         st.markdown('<div class="section-header">Calculated Offers</div>', unsafe_allow_html=True)
         
         # Display offers
         col1, col2, col3 = st.columns(3)
         
-         with col1:
+        with col1:
             st.markdown(f"""
                 <div class="offer-card purchase-offer">
                     <div style="font-size: 18px;">Purchase Price</div>
@@ -532,15 +485,14 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
             
-            # Show expected return (this is your fixed profit target)
+            # Show expected return
             st.markdown(f'<div class="profit-positive">Target Return: ${purchase_return:,.0f}</div>', unsafe_allow_html=True)
             
-            # Verify the calculation
-            actual_profit = offers['nsp_purchase'] - (offers['purchase'] * 1.0525)
-            if abs(actual_profit - purchase_return) < 1:  # Within $1 of target
-                st.caption("✓ Achieves target return")
-            else:
-                st.caption(f"Actual return: ${actual_profit:,.0f}")
+            # Verify calculation if NSP values available
+            if 'nsp_purchase' in offers:
+                actual_profit = offers['nsp_purchase'] - (offers['purchase'] * 1.0525)
+                if abs(actual_profit - purchase_return) < 1:
+                    st.caption("✓ Achieves target return")
         
         with col2:
             st.markdown(f"""
@@ -551,15 +503,14 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
             
-            # Show wholesale return target
+            # Show wholesale return
             st.markdown(f'<div class="profit-positive">Target Return: ${wholesale_return:,.0f}</div>', unsafe_allow_html=True)
             
-            # Verify the calculation
-            actual_wholesale_return = offers['nsp_wholesale'] - offers['wholesale']
-            if abs(actual_wholesale_return - wholesale_return) < 1:  # Within $1 of target
-                st.caption("✓ Achieves target return")
-            else:
-                st.caption(f"Actual return: ${actual_wholesale_return:,.0f}")
+            # Verify calculation if NSP values available
+            if 'nsp_wholesale' in offers:
+                actual_return = offers['nsp_wholesale'] - offers['wholesale']
+                if abs(actual_return - wholesale_return) < 1:
+                    st.caption("✓ Achieves target return")
         
         with col3:
             if show_seller_finance:
@@ -568,7 +519,7 @@ def main():
                     "Seller Finance %",
                     min_value=80,
                     max_value=95,
-                    value=int(st.session_state.data.get('sf_percentage', 85) * 100) if 'sf_percentage' in st.session_state.data else 85,
+                    value=85,
                     step=5,
                     help="Percentage of FMV for seller financing"
                 ) / 100
@@ -583,7 +534,6 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Show terms
                 st.caption("**Terms:** 12-month balloon or 5-7 year amortized")
             else:
                 st.info("💡 Seller Finance available for properties $400k+ or with subdivision potential")
@@ -632,9 +582,10 @@ def main():
                         save_data['seller_finance'] = sf_price
                         save_data['sf_percentage'] = sf_percentage
                     
-                    if save_to_db(deal_id, save_data):
-                        st.success("✓ Saved successfully!")
-                        st.session_state.data = save_data
+                    if deal_id:
+                        if save_to_db(deal_id, save_data):
+                            st.success("✓ Saved successfully!")
+                            st.session_state.data = save_data
                     else:
                         st.warning("Please enter a Deal ID to save")
             
@@ -793,8 +744,12 @@ def main():
                 key="test_purchase"
             )
             
-            # Calculate profit at this price
-            test_profit = adjusted_fmv * 0.94 - 3500 - test_purchase * 1.0525
+            # Calculate profit at this price using NSP formula
+            if 'nsp_purchase' in offers:
+                test_profit = offers['nsp_purchase'] - (test_purchase * 1.0525)
+            else:
+                nsp_test = adjusted_fmv * 0.94 - 3500
+                test_profit = nsp_test - (test_purchase * 1.0525)
             
             if test_profit > 0:
                 st.success(f"✓ Profit: ${test_profit:,.0f}")
@@ -805,7 +760,7 @@ def main():
             
             # Show comparison to calculated price
             difference = test_purchase - offers['purchase']
-            if abs(difference) > 1:  # Only show if meaningful difference
+            if abs(difference) > 1:
                 if difference > 0:
                     st.warning(f"${difference:,.0f} above calculated price")
                 else:
@@ -821,8 +776,12 @@ def main():
                 key="test_wholesale"
             )
             
-            # Calculate margin at this price
-            test_margin = adjusted_fmv * 0.94 - 2500 - test_wholesale
+            # Calculate margin at this price using NSP formula
+            if 'nsp_wholesale' in offers:
+                test_margin = offers['nsp_wholesale'] - test_wholesale
+            else:
+                nsp_test = adjusted_fmv * 0.94 - 2500
+                test_margin = nsp_test - test_wholesale
             
             if test_margin > 0:
                 st.success(f"✓ Margin: ${test_margin:,.0f}")
@@ -833,7 +792,7 @@ def main():
             
             # Show comparison to calculated price
             difference_w = test_wholesale - offers['wholesale']
-            if abs(difference_w) > 1:  # Only show if meaningful difference
+            if abs(difference_w) > 1:
                 if difference_w > 0:
                     st.warning(f"${difference_w:,.0f} above calculated price")
                 else:
