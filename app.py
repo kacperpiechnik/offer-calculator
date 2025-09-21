@@ -145,6 +145,18 @@ def load_from_db(deal_id):
         return None
 
 # ============= GOOGLE SHEETS FUNCTIONS =============
+def get_default_config():
+    """Return default configuration values when Google Sheets is not available"""
+    st.warning("⚠️ Using default values - Google Sheets not connected")
+    return {
+        'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
+                      60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
+        'purchase_returns': [0, 2000, 2500, 3000, 4000, 5000, 5500, 7000, 
+                           8000, 10000, 12500, 17500, 20000, 22500, 25000, 30000, 35000],
+        'wholesale_returns': [0, 4000, 5000, 6000, 7000, 7500, 8500, 10000,
+                            12000, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 60000]
+    }
+
 @st.cache_data(ttl=300)  
 def load_google_sheets_config():
     """Load configuration from Google Sheets using direct Sheet ID"""
