@@ -36,7 +36,7 @@ DATABASE_URL = st.secrets.get("DATABASE_URL", "")
 
 # Google Sheets config
 GOOGLE_SHEETS_CREDS = st.secrets.get("gcp_service_account", {})
-SHEET_NAME = "LOGIC FOR CALCULATOR MASTER"
+SHEET_ID = st.secrets.get("GOOGLE_SHEET_ID", "1HJEx8uuMEA-PPM_gGghmYLaMusVTdUsAEENqqBEmuhM")  # <-- PUT YOUR SHEET ID HERE
 WORKSHEET_NAME = "logic"
 
 # ============= STYLING =============
@@ -147,55 +147,179 @@ def load_from_db(deal_id):
 # ============= GOOGLE SHEETS FUNCTIONS =============
 @st.cache_data(ttl=300)  
 def load_google_sheets_config():
-    """Load configuration from Google Sheets"""
+    """Load configuration from Google Sheets using direct Sheet ID"""
     try:
         # Authenticate with Google Sheets
         scope = ['https://spreadsheets.google.com/feeds',
                  'https://www.googleapis.com/auth/spreadsheets',
                  'https://www.googleapis.com/auth/drive']
-        creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scope)
+        
+        # Check if credentials exist
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ Missing gcp_service_account in Streamlit secrets!")
+            st.info("Add your service account JSON to Streamlit secrets under 'gcp_service_account'")
+            return get_default_config()
+        
+        # Check if Sheet ID is configured
+        if SHEET_ID == "YOUR_SHEET_ID_HERE" or not SHEET_ID:
+            st.error("❌ Google Sheet ID not configured!")
+            st.info("Add GOOGLE_SHEET_ID to your Streamlit secrets, or update the SHEET_ID variable in the code")
+            st.info("Find your Sheet ID in the URL: docs.google.com/spreadsheets/d/[SHEET_ID]/edit")
+            return get_default_config()
+        
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]), 
+            scopes=scope
+        )
         client = gspread.authorize(creds)
         
-        # Open the spreadsheet
-        spreadsheet = client.open(SHEET_NAME)
+        # Open spreadsheet by ID (more reliable than by name)
+        try:
+            spreadsheet = client.open_by_key(SHEET_ID)
+            st.success(f"✓ Connected to Google Sheet")
+            
+            # Try to get sheet title for confirmation
+            try:
+                sheet_title = spreadsheet.title
+                st.info(f"Sheet name: {sheet_title}")
+            except:
+                pass
+                
+        except gspread.exceptions.APIError as e:
+            if "403" in str(e):
+                st.error("❌ Permission denied! Sheet is not shared with service account.")
+                st.info("Share your sheet with: principal-acres-script-kpi-tra@database-project-468600.iam.gserviceaccount.com")
+            else:
+                st.error(f"❌ API Error: {e}")
+            return get_default_config()
+        except Exception as e:
+            st.error(f"❌ Could not open sheet with ID: {SHEET_ID}")
+            st.error(f"Error: {e}")
+            return get_default_config()
         
         # Get the worksheet
-        worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+        worksheet = None
+        try:
+            worksheet = spreadsheet.worksheet(WORKSHEET_NAME)
+            st.success(f"✓ Found worksheet: '{WORKSHEET_NAME}'")
+        except gspread.WorksheetNotFound:
+            # List all available worksheets
+            worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
+            st.warning(f"❌ Worksheet '{WORKSHEET_NAME}' not found!")
+            st.info(f"Available worksheets: {worksheet_names}")
+            
+            # Try to use the first worksheet as fallback
+            if worksheet_names:
+                worksheet = spreadsheet.worksheet(worksheet_names[0])
+                st.info(f"Using worksheet: '{worksheet_names[0]}'")
+            else:
+                st.error("No worksheets found in the spreadsheet!")
+                return get_default_config()
         
-        # Try different method to get all records
-        records = worksheet.get_all_records()
+        # Get all values from the sheet
+        all_values = worksheet.get_all_values()
         
-        if len(records) == 0:
-            # If no records, try get_all_values
-            all_values = worksheet.col_values(1)  # Get column A
-            purchase_col = worksheet.col_values(2)  # Get column B  
-            wholesale_col = worksheet.col_values(3)  # Get column C
+        if not all_values:
+            st.error("❌ Sheet is empty!")
+            return get_default_config()
+        
+        # Show sheet info for debugging
+        st.info(f"📊 Sheet has {len(all_values)} rows × {len(all_values[0]) if all_values else 0} columns")
+        
+        # Show first few rows to help debug structure
+        with st.expander("🔍 Preview sheet data (first 5 rows)"):
+            for i, row in enumerate(all_values[:5]):
+                # Show only first 3 columns to keep it clean
+                preview = row[:3] if len(row) >= 3 else row
+                st.write(f"Row {i+1}: {preview}")
+        
+        # Parse the data
+        thresholds = []
+        purchase_returns = []
+        wholesale_returns = []
+        
+        # Detect if first row has headers
+        first_row = all_values[0] if all_values else []
+        has_headers = False
+        
+        # Check for common header keywords
+        if first_row:
+            first_row_str = " ".join(str(cell).upper() for cell in first_row[:3])
+            if any(keyword in first_row_str for keyword in ["FMV", "PURCHASE", "WHOLESALE", "THRESHOLD", "RETURN"]):
+                has_headers = True
+                st.info(f"📋 Headers detected: {first_row[:3]}")
+        
+        start_row = 1 if has_headers else 0
+        
+        # Process data rows
+        rows_processed = 0
+        rows_skipped = 0
+        
+        for i in range(start_row, len(all_values)):
+            row = all_values[i]
             
-            thresholds = []
-            purchase_returns = []
-            wholesale_returns = []
+            # Skip empty rows
+            if not row or not row[0] or str(row[0]).strip() == '':
+                rows_skipped += 1
+                continue
             
-            # Skip header, process from row 2
-            for i in range(1, min(len(all_values), len(purchase_col), len(wholesale_col))):
-                if all_values[i]:
-                    thresholds.append(float(all_values[i]) * 1000)
-                    purchase_returns.append(float(purchase_col[i]) if purchase_col[i] else 0)
-                    wholesale_returns.append(float(wholesale_col[i]) if wholesale_col[i] else 0)
-        else:
-            # Process records if we got them
-            thresholds = []
-            purchase_returns = []
-            wholesale_returns = []
-            
-            for record in records:
-                if 'FMV' in record:
-                    thresholds.append(float(record['FMV']) * 1000)
-                    purchase_returns.append(float(record.get('Purchase Expected Return', 0)))
-                    wholesale_returns.append(float(record.get('Wholesale Expected Return', 0)))
+            try:
+                # Clean and parse Column A (FMV threshold)
+                fmv_str = str(row[0]).replace(',', '').replace('$', '').strip()
+                fmv_value = float(fmv_str)
+                
+                # Auto-detect if values need to be multiplied by 1000
+                # (if the first valid value is less than 1000, assume it's in thousands)
+                if rows_processed == 0 and fmv_value < 1000:
+                    st.info("💡 Values appear to be in thousands, multiplying by 1000")
+                
+                if fmv_value < 1000:
+                    fmv_value *= 1000
+                
+                thresholds.append(fmv_value)
+                
+                # Column B: Purchase Expected Return
+                purchase_value = 0
+                if len(row) > 1 and row[1] and str(row[1]).strip():
+                    purchase_str = str(row[1]).replace(',', '').replace('$', '').strip()
+                    purchase_value = float(purchase_str)
+                purchase_returns.append(purchase_value)
+                
+                # Column C: Wholesale Expected Return
+                wholesale_value = 0
+                if len(row) > 2 and row[2] and str(row[2]).strip():
+                    wholesale_str = str(row[2]).replace(',', '').replace('$', '').strip()
+                    wholesale_value = float(wholesale_str)
+                wholesale_returns.append(wholesale_value)
+                
+                rows_processed += 1
+                    
+            except ValueError as e:
+                st.warning(f"⚠️ Could not parse row {i+1}: {row[:3]} - Skipping...")
+                rows_skipped += 1
+                continue
         
         if len(thresholds) == 0:
-            raise ValueError("No data found")
+            st.error("❌ No valid data found in sheet!")
+            st.info("Make sure your sheet has numeric values in columns A, B, and C")
+            return get_default_config()
+        
+        st.success(f"✅ Successfully loaded {len(thresholds)} threshold levels")
+        if rows_skipped > 0:
+            st.info(f"Skipped {rows_skipped} invalid/empty rows")
+        
+        # Show summary of loaded data
+        with st.expander("📊 Loaded data summary"):
+            st.write(f"**Data range:**")
+            st.write(f"- FMV: ${min(thresholds):,.0f} to ${max(thresholds):,.0f}")
+            st.write(f"- Purchase returns: ${min(purchase_returns):,.0f} to ${max(purchase_returns):,.0f}")
+            st.write(f"- Wholesale returns: ${min(wholesale_returns):,.0f} to ${max(wholesale_returns):,.0f}")
             
+            # Show first few entries
+            st.write("\n**First 3 entries:**")
+            for i in range(min(3, len(thresholds))):
+                st.write(f"{i+1}. FMV ${thresholds[i]:,.0f} → Purchase ${purchase_returns[i]:,.0f}, Wholesale ${wholesale_returns[i]:,.0f}")
+        
         return {
             'thresholds': thresholds,
             'purchase_returns': purchase_returns,
@@ -203,16 +327,9 @@ def load_google_sheets_config():
         }
         
     except Exception as e:
-        st.warning(f"Could not load Google Sheets config: {e}. Using defaults.")
-        # Return defaults
-        return {
-            'thresholds': [0, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 
-                          60000, 80000, 100000, 150000, 200000, 250000, 300000, 400000, 500000],
-            'purchase_returns': [0, 2000, 2500, 3000, 4000, 5000, 5500, 7000, 
-                               8000, 10000, 12500, 17500, 20000, 22500, 25000, 30000, 35000],
-            'wholesale_returns': [0, 4000, 5000, 6000, 7000, 7500, 8500, 10000,
-                                12000, 15000, 20000, 25000, 30000, 35000, 40000, 50000, 60000]
-        }
+        st.error(f"❌ Unexpected error loading Google Sheets: {str(e)}")
+        st.exception(e)  # Show full traceback for debugging
+        return get_default_config()
 
 def get_expected_return(fmv, config, offer_type='purchase'):
     """Get expected return based on FMV using the threshold table"""
