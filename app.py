@@ -240,6 +240,48 @@ def calculate_subdivision_purchase(total_subdiv_value, config):
     return max(0, purchase_price)
 
 # ============= PIPEDRIVE FUNCTIONS =============
+def auto_save_subdivision_data(deal_id, session_state):
+    """Helper function to auto-save subdivision data"""
+    if not deal_id:
+        return
+    
+    save_data = {
+        'subdiv_data': session_state.subdiv_data,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # Load existing data and merge
+    existing = load_from_db(deal_id)
+    if existing:
+        existing.update(save_data)
+        save_data = existing
+    
+    save_to_db(deal_id, save_data)
+
+def auto_save_all_data(deal_id, fmv, acreage, adjustments, can_subdivide, session_state, config):
+    """Auto-save all calculator data"""
+    if not deal_id:
+        return False
+    
+    adjusted_fmv = fmv + sum(adj['amount'] for adj in adjustments)
+    offers = calculate_offers(adjusted_fmv, config)
+    
+    save_data = {
+        'fmv': fmv,
+        'acreage': acreage,
+        'adjustments': adjustments,
+        'adjusted_fmv': adjusted_fmv,
+        'purchase_price': offers['purchase'],
+        'wholesale_price': offers['wholesale'],
+        'can_subdivide': can_subdivide,
+        'comp_values': session_state.comp_values,
+        'subdiv_data': session_state.subdiv_data,
+        'sf_percentage': session_state.get('sf_percentage', 85),
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    return save_to_db(deal_id, save_data)
+
 def push_to_pipedrive(deal_id, data):
     """Push calculated values to Pipedrive"""
     if not PIPEDRIVE_API_TOKEN or not PIPEDRIVE_DOMAIN:
@@ -382,6 +424,9 @@ def main():
             if existing_data:
                 st.success("✓ Loaded")
                 st.session_state.data = existing_data
+            # Show auto-save indicator
+            if 'last_save' in st.session_state:
+                st.caption("Auto-saving...")
     
     if 'data' not in st.session_state:
         st.session_state.data = {}
@@ -462,6 +507,18 @@ def main():
                     acreage = 0.0
             
             st.session_state.acreage = acreage
+            
+            # Auto-save when FMV or acreage changes
+            if deal_id and (fmv_input > 0 or acreage > 0):
+                # Use a simple check to prevent too frequent saves
+                if 'last_fmv' not in st.session_state or st.session_state.last_fmv != fmv_input:
+                    st.session_state.last_fmv = fmv_input
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
+                elif 'last_acreage' not in st.session_state or st.session_state.last_acreage != acreage:
+                    st.session_state.last_acreage = acreage
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         
         with col2:
             st.subheader("Adjustments")
@@ -476,6 +533,10 @@ def main():
             if st.button("Add", key="add_adj_btn", use_container_width=True):
                 if new_desc and new_amt != 0:
                     st.session_state.adjustments.append({'description': new_desc, 'amount': new_amt})
+                    # Auto-save when adding adjustment
+                    if deal_id:
+                        auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                         can_subdivide, st.session_state, config)
                     st.rerun()
             
             # Display adjustments with smaller font
@@ -700,13 +761,48 @@ def main():
             with col_push:
                 if st.button("📤 Push to Pipedrive", use_container_width=True):
                     if deal_id:
+                        # First ensure we have the latest calculated values
                         push_data = {
                             'purchase_price': offers['purchase'],
                             'wholesale_price': offers['wholesale'],
                             'seller_finance': sf_price if show_seller_finance else 0
                         }
+                        
+                        # Also save current state to database before pushing
+                        save_data = {
+                            'fmv': fmv_input,
+                            'acreage': acreage,
+                            'adjustments': st.session_state.adjustments,
+                            'adjusted_fmv': adjusted_fmv,
+                            'purchase_price': offers['purchase'],
+                            'wholesale_price': offers['wholesale'],
+                            'can_subdivide': can_subdivide,
+                            'manual_target': manual_target
+                        }
+                        
+                        if show_seller_finance:
+                            save_data['seller_finance'] = sf_price
+                            save_data['sf_percentage'] = st.session_state.get('sf_percentage', 85)
+                        
+                        # Save comp values if they exist
+                        if st.session_state.comp_values['sold'] > 0:
+                            save_data['comp_sold_value'] = st.session_state.comp_values['sold']
+                        if st.session_state.comp_values['active'] > 0:
+                            save_data['comp_active_value'] = st.session_state.comp_values['active']
+                        
+                        # Save subdivision data if exists
+                        if st.session_state.subdiv_data:
+                            save_data['subdiv_data'] = st.session_state.subdiv_data
+                        
+                        # Save to DB first
+                        save_to_db(deal_id, save_data)
+                        
+                        # Then push to Pipedrive
                         if push_to_pipedrive(deal_id, push_data):
-                            st.success("✓ Pushed!")
+                            st.success("✓ Pushed to Pipedrive & Saved!")
+                            st.session_state.data = save_data
+                        else:
+                            st.warning("Push failed but data saved locally")
                     else:
                         st.warning("Enter Deal ID")
     
@@ -837,12 +933,27 @@ def main():
                                            value=int(admin_sold_ppa),
                                            min_value=0, step=100, key="admin_use_ppa")
             
+            # Always show the calculated value
             if admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
                 admin_total_value = admin_use_ppa * admin_lot_size * admin_lots
-                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Admin Total: ${admin_total_value:,.0f}</div>", unsafe_allow_html=True)
-                if st.button("Set Admin", key="set_admin", use_container_width=True):
+                admin_purchase = calculate_subdivision_purchase(admin_total_value, config)
+                admin_profit = calculate_subdivision_profit(admin_total_value, admin_purchase)
+                
+                # Visual display of calculations
+                st.markdown(f"<div style='background: #f0f9ff; padding: 10px; border-radius: 8px; margin: 10px 0;'>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #0369a1;'>Admin Total: ${admin_total_value:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 14px; color: #0c4a6e;'>Purchase: ${admin_purchase:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 14px; color: #0c4a6e;'>Expected Profit: ${admin_profit:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"</div>", unsafe_allow_html=True)
+                
+                if st.button("✓ Set Admin Value", key="set_admin", use_container_width=True, type="primary"):
                     st.session_state.subdiv_data['admin_value'] = admin_total_value
-                    st.rerun()
+                    # Auto-save when setting admin value
+                    if deal_id:
+                        auto_save_subdivision_data(deal_id, st.session_state)
+                    st.success("Admin value set!")
+            else:
+                st.info("Enter lots and PPA to see calculations")
         
         # Minor Split
         st.subheader("📋 Minor Split")
@@ -859,12 +970,27 @@ def main():
         with col3:
             minor_ppa = st.number_input("PPA ($)", min_value=0, step=100, key="minor_ppa")
             
+            # Always show the calculated value
             if minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
                 minor_total_value = minor_ppa * minor_lot_size * minor_lots
-                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Minor Total: ${minor_total_value:,.0f}</div>", unsafe_allow_html=True)
-                if st.button("Set Minor", key="set_minor", use_container_width=True):
+                minor_purchase = calculate_subdivision_purchase(minor_total_value, config)
+                minor_profit = calculate_subdivision_profit(minor_total_value, minor_purchase)
+                
+                # Visual display of calculations
+                st.markdown(f"<div style='background: #fef3c7; padding: 10px; border-radius: 8px; margin: 10px 0;'>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #92400e;'>Minor Total: ${minor_total_value:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 14px; color: #78350f;'>Purchase: ${minor_purchase:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 14px; color: #78350f;'>Expected Profit: ${minor_profit:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"</div>", unsafe_allow_html=True)
+                
+                if st.button("✓ Set Minor Value", key="set_minor", use_container_width=True, type="primary"):
                     st.session_state.subdiv_data['minor_value'] = minor_total_value
-                    st.rerun()
+                    # Auto-save when setting minor value
+                    if deal_id:
+                        auto_save_subdivision_data(deal_id, st.session_state)
+                    st.success("Minor value set!")
+            else:
+                st.info("Enter lots and PPA to see calculations")
         
         # Show both values summary
         if 'admin_value' in st.session_state.subdiv_data or 'minor_value' in st.session_state.subdiv_data:
