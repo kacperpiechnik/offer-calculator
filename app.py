@@ -817,69 +817,55 @@ def main():
                 admin_active_ppa = 0
         
         # Admin calculation
-        with st.form("admin_split_form"):
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                admin_lots = st.number_input("Admin Lots", min_value=0, 
-                                            value=saved_subdiv.get('admin_lots', 0), step=1, key="admin_lots_form")
-            with col2:
-                if admin_lots > 0 and acreage > 0:
-                    admin_lot_size = acreage / admin_lots
-                    st.metric("Acres/Lot", f"{admin_lot_size:.2f}")
-                else:
-                    admin_lot_size = 0
-            with col3:
-                admin_use_ppa = st.number_input("Use PPA ($)", 
-                                               value=saved_subdiv.get('admin_use_ppa', int(admin_sold_ppa)),
-                                               min_value=0, step=100, key="admin_use_ppa_form")
-            with col4:
-                submit = st.form_submit_button("Calculate", use_container_width=True)
-                if submit and admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
-                    # Correct formula: lots × acres/lot × PPA
-                    admin_total_value = admin_lots * admin_lot_size * admin_use_ppa
-                    st.session_state.subdiv_data['admin_value'] = admin_total_value
-                    st.session_state['admin_lots_num'] = admin_lots
-                    st.session_state['admin_use_ppa'] = admin_use_ppa
-                    st.rerun()
-                elif 'admin_value' in st.session_state.subdiv_data:
-                    admin_total_value = st.session_state.subdiv_data['admin_value']
-                    admin_purchase = calculate_subdivision_purchase(admin_total_value, config)
-                    st.metric("Total Value", f"${admin_total_value:,.0f}")
-                    st.caption(f"Purchase: ${admin_purchase:,.0f}")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            admin_lots = st.number_input("Admin Lots", min_value=0, 
+                                        value=saved_subdiv.get('admin_lots', 0), step=1, key="admin_lots_num")
+        with col2:
+            if admin_lots > 0 and acreage > 0:
+                admin_lot_size = acreage / admin_lots
+                st.metric("Acres/Lot", f"{admin_lot_size:.2f}")
+            else:
+                admin_lot_size = 0
+        with col3:
+            admin_use_ppa = st.number_input("Use PPA ($)", 
+                                           value=saved_subdiv.get('admin_use_ppa', int(admin_sold_ppa)),
+                                           min_value=0, step=100, key="admin_use_ppa")
+        with col4:
+            if admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
+                # Correct formula: lots × acres/lot × PPA
+                admin_total_value = admin_lots * admin_lot_size * admin_use_ppa
+                st.metric("Total Value", f"${admin_total_value:,.0f}")
+                # Auto-calculate and update
+                st.session_state.subdiv_data['admin_value'] = admin_total_value
+                admin_purchase = calculate_subdivision_purchase(admin_total_value, config)
+                st.caption(f"Purchase: ${admin_purchase:,.0f}")
         
         # Minor Split
         st.subheader("📋 Minor Split")
+        col1, col2, col3, col4 = st.columns(4)
         
-        # Using form to prevent Enter key from navigating away
-        with st.form("minor_split_form"):
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                minor_lots = st.number_input("Minor Lots", min_value=0, 
-                                            value=saved_subdiv.get('minor_lots', 0), step=1, key="minor_lots_form")
-            with col2:
-                if minor_lots > 0 and acreage > 0:
-                    minor_lot_size = acreage / minor_lots
-                    st.metric("Acres/Lot", f"{minor_lot_size:.2f}")
-                else:
-                    minor_lot_size = 0
-            with col3:
-                minor_ppa = st.number_input("PPA ($)", min_value=0, step=100, key="minor_ppa_form",
-                                           value=saved_subdiv.get('minor_ppa', 0))
-            with col4:
-                submit = st.form_submit_button("Calculate", use_container_width=True)
-                if submit and minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
-                    # Correct formula: lots × acres/lot × PPA
-                    minor_total_value = minor_lots * minor_lot_size * minor_ppa
-                    st.session_state.subdiv_data['minor_value'] = minor_total_value
-                    st.session_state['minor_lots_num'] = minor_lots
-                    st.session_state['minor_ppa'] = minor_ppa
-                    st.rerun()
-                elif 'minor_value' in st.session_state.subdiv_data:
-                    minor_total_value = st.session_state.subdiv_data['minor_value']
-                    minor_purchase = calculate_subdivision_purchase(minor_total_value, config)
-                    st.metric("Total Value", f"${minor_total_value:,.0f}")
-                    st.caption(f"Purchase: ${minor_purchase:,.0f}")
+        with col1:
+            minor_lots = st.number_input("Minor Lots", min_value=0, 
+                                        value=saved_subdiv.get('minor_lots', 0), step=1, key="minor_lots_num")
+        with col2:
+            if minor_lots > 0 and acreage > 0:
+                minor_lot_size = acreage / minor_lots
+                st.metric("Acres/Lot", f"{minor_lot_size:.2f}")
+            else:
+                minor_lot_size = 0
+        with col3:
+            minor_ppa = st.number_input("PPA ($)", min_value=0, step=100, key="minor_ppa",
+                                       value=saved_subdiv.get('minor_ppa', 0))
+        with col4:
+            if minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
+                # Correct formula: lots × acres/lot × PPA
+                minor_total_value = minor_lots * minor_lot_size * minor_ppa
+                st.metric("Total Value", f"${minor_total_value:,.0f}")
+                # Auto-calculate and update
+                st.session_state.subdiv_data['minor_value'] = minor_total_value
+                minor_purchase = calculate_subdivision_purchase(minor_total_value, config)
+                st.caption(f"Purchase: ${minor_purchase:,.0f}")
         
         # Show both values summary
         if 'admin_value' in st.session_state.subdiv_data or 'minor_value' in st.session_state.subdiv_data:
