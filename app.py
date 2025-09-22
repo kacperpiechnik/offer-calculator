@@ -506,21 +506,41 @@ def main():
                 if acreage is None:
                     acreage = 0.0
             
-            st.session_state.acreage = acreage
+        with col3:
+            st.subheader("Subdivision")
             
-            # Auto-save when FMV or acreage changes
-            if deal_id and (fmv_input > 0 or acreage > 0):
-                # Use a simple check to prevent too frequent saves
-                if 'last_fmv' not in st.session_state or st.session_state.last_fmv != fmv_input:
-                    st.session_state.last_fmv = fmv_input
-                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
-                                     can_subdivide, st.session_state, config)
-                elif 'last_acreage' not in st.session_state or st.session_state.last_acreage != acreage:
-                    st.session_state.last_acreage = acreage
-                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
-                                     can_subdivide, st.session_state, config)
+            # Check URL parameter for can_subdivide
+            url_can_subdivide = query_params.get('can_subdivide', None)
+            if url_can_subdivide == '1':
+                default_can_subdivide = True
+            elif 'can_subdivide' in st.session_state.data:
+                default_can_subdivide = st.session_state.data.get('can_subdivide', False)
+            else:
+                default_can_subdivide = False
+            
+            can_subdivide = st.checkbox(
+                "Can Subdivide",
+                value=default_can_subdivide
+            )
+            
+            if can_subdivide and st.session_state.subdiv_data:
+                if 'admin_value' in st.session_state.subdiv_data:
+                    st.caption(f"Admin: ${st.session_state.subdiv_data['admin_value']:,.0f}")
+                if 'minor_value' in st.session_state.subdiv_data:
+                    st.caption(f"Minor: ${st.session_state.subdiv_data['minor_value']:,.0f}")
         
-        with col2:
+        # Now can_subdivide is defined, so we can do auto-save
+        # Auto-save when FMV or acreage changes
+        if deal_id and (fmv_input > 0 or acreage > 0):
+            # Use a simple check to prevent too frequent saves
+            if 'last_fmv' not in st.session_state or st.session_state.last_fmv != fmv_input:
+                st.session_state.last_fmv = fmv_input
+                auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                 can_subdivide, st.session_state, config)
+            elif 'last_acreage' not in st.session_state or st.session_state.last_acreage != acreage:
+                st.session_state.last_acreage = acreage
+                auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                 can_subdivide, st.session_state, config)
             st.subheader("Adjustments")
             
             # Compact adjustment input
