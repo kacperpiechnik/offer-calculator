@@ -556,9 +556,9 @@ def main():
         
         # Initialize temp storage for current values
         if 'temp_sold' not in st.session_state:
-            st.session_state.temp_sold = {'price': 0, 'acres': 0}
+            st.session_state.temp_sold = {'price': 0, 'acres': 0.0}
         if 'temp_active' not in st.session_state:
-            st.session_state.temp_active = {'price': 0, 'acres': 0}
+            st.session_state.temp_active = {'price': 0, 'acres': 0.0}
         
         # Sold Comp
         st.subheader("🔍 Most Relevant Sold Comp")
