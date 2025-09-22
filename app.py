@@ -275,11 +275,58 @@ def main():
     
     # Initialize session state
     if 'adjustments' not in st.session_state:
-        st.session_state.adjustments = []
+        # Try to load adjustments from URL
+        url_adjustments = query_params.get('adjustments', None)
+        if url_adjustments:
+            try:
+                st.session_state.adjustments = json.loads(url_adjustments)
+            except:
+                st.session_state.adjustments = []
+        else:
+            st.session_state.adjustments = []
+    
     if 'subdiv_data' not in st.session_state:
         st.session_state.subdiv_data = {}
+        # Load subdivision data from URL if available
+        admin_value = query_params.get('admin_value', None)
+        minor_value = query_params.get('minor_value', None)
+        if admin_value:
+            try:
+                st.session_state.subdiv_data['admin_value'] = float(admin_value)
+            except:
+                pass
+        if minor_value:
+            try:
+                st.session_state.subdiv_data['minor_value'] = float(minor_value)
+            except:
+                pass
+    
     if 'comp_values' not in st.session_state:
         st.session_state.comp_values = {'sold': 0, 'active': 0}
+        # Load comp values from URL if available
+        comp_sold = query_params.get('comp_sold', None)
+        comp_active = query_params.get('comp_active', None)
+        if comp_sold:
+            try:
+                st.session_state.comp_values['sold'] = float(comp_sold)
+            except:
+                pass
+        if comp_active:
+            try:
+                st.session_state.comp_values['active'] = float(comp_active)
+            except:
+                pass
+    
+    # Load other URL parameters into session state
+    if 'sf_percentage' not in st.session_state:
+        sf_perc = query_params.get('sf_percentage', None)
+        if sf_perc:
+            try:
+                st.session_state.sf_percentage = int(sf_perc)
+            except:
+                st.session_state.sf_percentage = 85
+        else:
+            st.session_state.sf_percentage = 85
     
     # Get URL parameters for automation
     query_params = st.query_params
@@ -299,6 +346,15 @@ def main():
         url_acreage = float(url_acreage) if url_acreage and url_acreage != '' else None
     except (ValueError, TypeError):
         url_acreage = None
+    
+    # Function to update URL with all parameters
+    def update_url_params(**kwargs):
+        """Update URL parameters with current values"""
+        for key, value in kwargs.items():
+            if value is not None and value != '' and value != 0:
+                st.query_params[key] = str(value)
+            elif key in st.query_params:
+                del st.query_params[key]
     
     # Sidebar
     with st.sidebar:
@@ -445,9 +501,18 @@ def main():
         with col3:
             st.subheader("Subdivision")
             
+            # Check URL parameter for can_subdivide
+            url_can_subdivide = query_params.get('can_subdivide', None)
+            if url_can_subdivide == '1':
+                default_can_subdivide = True
+            elif 'can_subdivide' in st.session_state.data:
+                default_can_subdivide = st.session_state.data.get('can_subdivide', False)
+            else:
+                default_can_subdivide = False
+            
             can_subdivide = st.checkbox(
                 "Can Subdivide",
-                value=st.session_state.data.get('can_subdivide', False)
+                value=default_can_subdivide
             )
             
             if can_subdivide and st.session_state.subdiv_data:
@@ -463,16 +528,6 @@ def main():
         offers = calculate_offers(adjusted_fmv, config)
         purchase_return = offers['purchase_return']
         wholesale_return = offers['wholesale_return']
-        
-        # Debug info (remove after testing)
-        with st.expander("Debug Info"):
-            st.write(f"FMV Input: ${fmv_input:,}")
-            st.write(f"Total Adjustments: ${total_adjustments:,}")
-            st.write(f"Adjusted FMV: ${adjusted_fmv:,}")
-            st.write(f"Purchase Price: ${offers['purchase']:,.0f}")
-            st.write(f"Wholesale Price: ${offers['wholesale']:,.0f}")
-            st.write(f"Purchase Return: ${purchase_return:,}")
-            st.write(f"Wholesale Return: ${wholesale_return:,}")
         
         # Show comp-based values if available
         if st.session_state.comp_values['sold'] > 0 or st.session_state.comp_values['active'] > 0:
@@ -494,7 +549,11 @@ def main():
         with col2:
             if manual_target > 0:
                 custom_offers = calculate_offers(adjusted_fmv, config, manual_target)
-                st.markdown(f"**Custom Purchase:** ${custom_offers['purchase']:,.0f} | **Custom Wholesale:** ${custom_offers['wholesale']:,.0f}")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("Custom Purchase", f"${custom_offers['purchase']:,.0f}")
+                with col_b:
+                    st.metric("Custom Wholesale", f"${custom_offers['wholesale']:,.0f}")
         
         # Show seller finance controls
         show_seller_finance = (can_subdivide or fmv_input >= 400000)
@@ -606,6 +665,31 @@ def main():
                     if show_seller_finance:
                         save_data['seller_finance'] = sf_price
                         save_data['sf_percentage'] = st.session_state.get('sf_percentage', 85)
+                    
+                    # Save comp values if they exist
+                    if st.session_state.comp_values['sold'] > 0:
+                        save_data['comp_sold_value'] = st.session_state.comp_values['sold']
+                    if st.session_state.comp_values['active'] > 0:
+                        save_data['comp_active_value'] = st.session_state.comp_values['active']
+                    
+                    # Save subdivision data if exists
+                    if st.session_state.subdiv_data:
+                        save_data['subdiv_data'] = st.session_state.subdiv_data
+                    
+                    # Update URL parameters with all values
+                    update_url_params(
+                        deal_id=deal_id,
+                        fmv=fmv_input if fmv_input > 0 else None,
+                        acreage=acreage if acreage > 0 else None,
+                        can_subdivide=1 if can_subdivide else None,
+                        manual_target=manual_target if manual_target > 0 else None,
+                        sf_percentage=st.session_state.get('sf_percentage') if show_seller_finance else None,
+                        comp_sold=st.session_state.comp_values['sold'] if st.session_state.comp_values['sold'] > 0 else None,
+                        comp_active=st.session_state.comp_values['active'] if st.session_state.comp_values['active'] > 0 else None,
+                        admin_value=st.session_state.subdiv_data.get('admin_value') if 'admin_value' in st.session_state.subdiv_data else None,
+                        minor_value=st.session_state.subdiv_data.get('minor_value') if 'minor_value' in st.session_state.subdiv_data else None,
+                        adjustments=json.dumps(st.session_state.adjustments) if st.session_state.adjustments else None
+                    )
                     
                     if deal_id and save_to_db(deal_id, save_data):
                         st.success("✓ Saved!")
