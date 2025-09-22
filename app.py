@@ -343,37 +343,68 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Use URL parameter if available, otherwise use saved or 0
+            # Handle FMV input with proper null/empty handling
             if url_fmv and url_fmv > 0:
                 default_fmv = url_fmv
-            elif 'fmv' in st.session_state.data:
+            elif 'fmv' in st.session_state.data and st.session_state.data.get('fmv'):
                 default_fmv = int(st.session_state.data.get('fmv'))
             else:
-                default_fmv = 0  # Start with 0 if no value from Pipedrive
+                default_fmv = None  # Keep as None if no value from Pipedrive
             
-            fmv_input = st.number_input(
-                "Fair Market Value ($)",
-                min_value=0,
-                value=default_fmv,
-                step=1000,
-                format="%d"
-            )
+            # Show FMV input - will be empty if default_fmv is None
+            if default_fmv is not None:
+                fmv_input = st.number_input(
+                    "Fair Market Value ($)",
+                    min_value=0,
+                    value=default_fmv,
+                    step=1000,
+                    format="%d"
+                )
+            else:
+                # Show empty input field
+                fmv_input = st.number_input(
+                    "Fair Market Value ($)",
+                    min_value=0,
+                    step=1000,
+                    format="%d",
+                    value=None,
+                    placeholder="Enter FMV"
+                )
+                # If user hasn't entered a value, use 0 for calculations
+                if fmv_input is None:
+                    fmv_input = 0
             
-            # Use URL parameter if available, otherwise use saved or 0
+            # Handle Acreage input with proper null/empty handling
             if url_acreage and url_acreage > 0:
                 default_acreage = url_acreage
-            elif 'acreage' in st.session_state.data:
+            elif 'acreage' in st.session_state.data and st.session_state.data.get('acreage'):
                 default_acreage = float(st.session_state.data.get('acreage'))
             else:
-                default_acreage = 0.0  # Start with 0 if no value from Pipedrive
+                default_acreage = None  # Keep as None if no value from Pipedrive
             
-            acreage = st.number_input(
-                "Acreage",
-                min_value=0.0,
-                value=default_acreage,
-                step=0.1,
-                format="%.2f"
-            )
+            # Show Acreage input - will be empty if default_acreage is None
+            if default_acreage is not None:
+                acreage = st.number_input(
+                    "Acreage",
+                    min_value=0.0,
+                    value=default_acreage,
+                    step=0.1,
+                    format="%.2f"
+                )
+            else:
+                # Show empty input field
+                acreage = st.number_input(
+                    "Acreage",
+                    min_value=0.0,
+                    step=0.1,
+                    format="%.2f",
+                    value=None,
+                    placeholder="Enter acreage"
+                )
+                # If user hasn't entered a value, use 0 for calculations
+                if acreage is None:
+                    acreage = 0.0
+            
             st.session_state.acreage = acreage
         
         with col2:
@@ -428,10 +459,20 @@ def main():
         # Calculate adjusted FMV
         adjusted_fmv = fmv_input + total_adjustments
         
-        # Calculate offers
+        # Always recalculate offers based on current values
         offers = calculate_offers(adjusted_fmv, config)
         purchase_return = offers['purchase_return']
         wholesale_return = offers['wholesale_return']
+        
+        # Debug info (remove after testing)
+        with st.expander("Debug Info"):
+            st.write(f"FMV Input: ${fmv_input:,}")
+            st.write(f"Total Adjustments: ${total_adjustments:,}")
+            st.write(f"Adjusted FMV: ${adjusted_fmv:,}")
+            st.write(f"Purchase Price: ${offers['purchase']:,.0f}")
+            st.write(f"Wholesale Price: ${offers['wholesale']:,.0f}")
+            st.write(f"Purchase Return: ${purchase_return:,}")
+            st.write(f"Wholesale Return: ${wholesale_return:,}")
         
         # Show comp-based values if available
         if st.session_state.comp_values['sold'] > 0 or st.session_state.comp_values['active'] > 0:
@@ -449,7 +490,7 @@ def main():
         # Manual target profit input
         col1, col2 = st.columns([1, 3])
         with col1:
-            manual_target = st.number_input("Custom Target Profit ($)", min_value=0, step=1000, key="manual_target")
+            manual_target = st.number_input("Custom Target Profit ($)", min_value=0, step=1000, key="manual_target", value=0)
         with col2:
             if manual_target > 0:
                 custom_offers = calculate_offers(adjusted_fmv, config, manual_target)
@@ -458,7 +499,13 @@ def main():
         # Show seller finance controls
         show_seller_finance = (can_subdivide or fmv_input >= 400000)
         
-        # Display offers
+        # Recalculate SF price if needed
+        sf_price = 0
+        if show_seller_finance:
+            sf_percentage = st.session_state.get('sf_percentage', 85)
+            sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage/100)
+        
+        # Display offers - USING THE CURRENT CALCULATED VALUES
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -481,9 +528,6 @@ def main():
         
         with col3:
             if show_seller_finance:
-                sf_percentage = st.session_state.get('sf_percentage', 85)
-                sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage/100)
-                
                 st.markdown(f"""
                     <div class="offer-card finance-offer">
                         <div style="font-size: 16px;">Seller Finance</div>
@@ -556,7 +600,7 @@ def main():
                         'purchase_price': offers['purchase'],
                         'wholesale_price': offers['wholesale'],
                         'can_subdivide': can_subdivide,
-                        'manual_target': manual_target if 'manual_target' in locals() else 0
+                        'manual_target': manual_target
                     }
                     
                     if show_seller_finance:
