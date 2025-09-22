@@ -315,7 +315,7 @@ def main():
         st.session_state.acreage = 5.0
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Property & Offers", "🏘️ Comps Analysis", "📐 Subdivision", "💰 Negotiation"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Property & Offers", "🏘️ Comps Analysis", "📐 Subdivision", "💰 Negotiation", "🧮 Custom Profit"])
     
     with tab1:
         st.markdown('<div class="section-header">Property Details</div>', unsafe_allow_html=True)
@@ -420,7 +420,7 @@ def main():
         with col2:
             if manual_target > 0:
                 custom_offers = calculate_offers(adjusted_fmv, config, manual_target)
-                st.info(f"Custom Purchase: ${custom_offers['purchase']:,.0f} | Custom Wholesale: ${custom_offers['wholesale']:,.0f}")
+                st.markdown(f"**Custom Purchase:** ${custom_offers['purchase']:,.0f} | **Custom Wholesale:** ${custom_offers['wholesale']:,.0f}")
         
         # Show seller finance controls
         show_seller_finance = (can_subdivide or fmv_input >= 400000)
@@ -554,6 +554,12 @@ def main():
         
         acreage = st.session_state.acreage
         
+        # Initialize temp storage for current values
+        if 'temp_sold' not in st.session_state:
+            st.session_state.temp_sold = {'price': 0, 'acres': 0}
+        if 'temp_active' not in st.session_state:
+            st.session_state.temp_active = {'price': 0, 'acres': 0}
+        
         # Sold Comp
         st.subheader("🔍 Most Relevant Sold Comp")
         col1, col2, col3, col4 = st.columns(4)
@@ -561,9 +567,13 @@ def main():
         with col1:
             sold_comp_link = st.text_input("Link", key="sold_link", placeholder="Zillow/Redfin")
         with col2:
-            sold_comp_price = st.number_input("Sale Price ($)", min_value=0, step=1000, key="sold_price")
+            sold_comp_price = st.number_input("Sale Price ($)", min_value=0, step=1000, key="sold_price",
+                                            value=st.session_state.temp_sold['price'])
+            st.session_state.temp_sold['price'] = sold_comp_price
         with col3:
-            sold_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="sold_acres")
+            sold_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="sold_acres",
+                                            value=st.session_state.temp_sold['acres'])
+            st.session_state.temp_sold['acres'] = sold_comp_acres
         with col4:
             if sold_comp_acres > 0 and sold_comp_price > 0:
                 sold_ppa = sold_comp_price / sold_comp_acres
@@ -584,9 +594,13 @@ def main():
         with col1:
             active_comp_link = st.text_input("Link", key="active_link", placeholder="Zillow/Redfin")
         with col2:
-            active_comp_price = st.number_input("Listing ($)", min_value=0, step=1000, key="active_price")
+            active_comp_price = st.number_input("Listing ($)", min_value=0, step=1000, key="active_price",
+                                              value=st.session_state.temp_active['price'])
+            st.session_state.temp_active['price'] = active_comp_price
         with col3:
-            active_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="active_acres")
+            active_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="active_acres",
+                                              value=st.session_state.temp_active['acres'])
+            st.session_state.temp_active['acres'] = active_comp_acres
         with col4:
             if active_comp_acres > 0 and active_comp_price > 0:
                 active_ppa = active_comp_price / active_comp_acres
@@ -770,6 +784,122 @@ def main():
             
             st.caption(f"Margin = NSP Wholesale - Wholesale Price")
             st.caption(f"NSP Wholesale = ${offers.get('nsp_wholesale', adjusted_fmv * 0.94 - 2500):,.0f}")
+    
+    with tab5:
+        st.markdown('<div class="section-header">Custom Profit Calculator</div>', unsafe_allow_html=True)
+        
+        st.subheader("💡 Calculate Custom Deal Profit")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Deal Inputs**")
+            custom_sale_value = st.number_input(
+                "Expected Total Sale Value ($)",
+                min_value=0,
+                step=1000,
+                key="custom_sale_value",
+                help="Total expected sale price"
+            )
+            
+            custom_purchase = st.number_input(
+                "Purchase Price ($)",
+                min_value=0,
+                step=1000,
+                key="custom_purchase",
+                help="What you're paying for the property"
+            )
+            
+            custom_closing = st.number_input(
+                "Expected Closing Costs ($)",
+                min_value=0,
+                value=2500,
+                step=100,
+                key="custom_closing"
+            )
+        
+        with col2:
+            st.write("**Percentage Costs**")
+            broker_percent = st.slider(
+                "Broker Costs (%)",
+                min_value=0.0,
+                max_value=10.0,
+                value=6.0,
+                step=0.5,
+                key="broker_percent",
+                help="Percentage of sale price for broker"
+            )
+            
+            funding_percent = st.slider(
+                "Funding/Lender Costs (%)",
+                min_value=0.0,
+                max_value=20.0,
+                value=5.0,
+                step=0.5,
+                key="funding_percent",
+                help="Percentage added to purchase price for funding"
+            )
+        
+        # Calculate custom profit
+        if custom_sale_value > 0 and custom_purchase > 0:
+            st.markdown('<div class="section-header">Profit Calculation</div>', unsafe_allow_html=True)
+            
+            # Calculate components
+            broker_costs = custom_sale_value * (broker_percent / 100)
+            funding_costs = custom_purchase * (funding_percent / 100)
+            total_purchase_with_funding = custom_purchase * (1 + funding_percent / 100)
+            
+            # Net sale proceeds = Sale Value - Broker Costs - Closing Costs
+            net_proceeds = custom_sale_value - broker_costs - custom_closing
+            
+            # Total costs = Purchase with funding
+            total_costs = total_purchase_with_funding
+            
+            # Profit = Net proceeds - Total costs
+            custom_profit = net_proceeds - total_costs
+            
+            # Display breakdown
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Revenue Side**")
+                st.metric("Sale Value", f"${custom_sale_value:,.0f}")
+                st.caption(f"- Broker ({broker_percent}%): ${broker_costs:,.0f}")
+                st.caption(f"- Closing: ${custom_closing:,.0f}")
+                st.metric("Net Proceeds", f"${net_proceeds:,.0f}")
+            
+            with col2:
+                st.markdown("**Cost Side**")
+                st.metric("Purchase Price", f"${custom_purchase:,.0f}")
+                st.caption(f"+ Funding ({funding_percent}%): ${funding_costs:,.0f}")
+                st.metric("Total Cost", f"${total_costs:,.0f}")
+            
+            with col3:
+                st.markdown("**Profit Analysis**")
+                if custom_profit > 0:
+                    st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
+                                color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 14px;">Net Profit</div>
+                            <div style="font-size: 32px; font-weight: bold;">${custom_profit:,.0f}</div>
+                            <div style="font-size: 14px;">ROI: {(custom_profit/custom_purchase*100):.1f}%</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
+                                color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 14px;">Net Loss</div>
+                            <div style="font-size: 32px; font-weight: bold;">-${abs(custom_profit):,.0f}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            # Show formula
+            st.markdown("---")
+            st.caption("**Formula Used:**")
+            st.caption(f"Net Proceeds = Sale Value × (1 - Broker %) - Closing Costs")
+            st.caption(f"Total Cost = Purchase Price × (1 + Funding %)")
+            st.caption(f"Profit = Net Proceeds - Total Cost")
 
 if __name__ == "__main__":
     main()
