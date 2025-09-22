@@ -606,7 +606,8 @@ def main():
         with col3:
             if show_seller_finance:
                 sf_percentage = st.session_state.get('sf_percentage', 85)
-                sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage/100)
+                # Use actual FMV (not adjusted) for seller finance calculation
+                sf_price = calculate_seller_finance(fmv_input, config, sf_percentage/100)
                 st.session_state.seller_finance = sf_price
                 
                 st.markdown(f"""
