@@ -520,7 +520,8 @@ def main():
             
             can_subdivide = st.checkbox(
                 "Can Subdivide",
-                value=default_can_subdivide
+                value=default_can_subdivide,
+                key="can_subdivide_checkbox"  # Add unique key
             )
             
             if can_subdivide and st.session_state.subdiv_data:
