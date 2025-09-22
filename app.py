@@ -364,16 +364,16 @@ def main():
                 for i, adj in enumerate(st.session_state.adjustments):
                     col_d, col_a, col_x = st.columns([3, 2, 1])
                     with col_d:
-                        st.markdown(f"<small>{adj['description']}</small>", unsafe_allow_html=True)
+                        st.markdown(f"<small style='font-size: 11px;'>{adj['description']}</small>", unsafe_allow_html=True)
                     with col_a:
-                        st.markdown(f"<small>${adj['amount']:,}</small>", unsafe_allow_html=True)
+                        st.markdown(f"<small style='font-size: 11px;'>${adj['amount']:,}</small>", unsafe_allow_html=True)
                     with col_x:
-                        if st.button("✕", key=f"del_{i}"):
+                        if st.button("×", key=f"del_{i}", help="Remove"):
                             st.session_state.adjustments.pop(i)
                             st.rerun()
                     total_adjustments += adj['amount']
                 
-                st.metric("Total", f"${total_adjustments:,}")
+                st.markdown(f"<div style='font-size: 13px; font-weight: bold;'>Total: ${total_adjustments:,}</div>", unsafe_allow_html=True)
             else:
                 st.caption("No adjustments")
                 total_adjustments = 0
@@ -537,7 +537,7 @@ def main():
                         st.warning("Enter Deal ID")
             
             with col_push:
-                if st.button("Push to Pipedrive", use_container_width=True):
+                if st.button("📤 Push to Pipedrive", use_container_width=True):
                     if deal_id:
                         push_data = {
                             'purchase_price': offers['purchase'],
@@ -565,16 +565,17 @@ def main():
         with col3:
             sold_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="sold_acres")
         with col4:
-            if sold_comp_acres > 0:
+            if sold_comp_acres > 0 and sold_comp_price > 0:
                 sold_ppa = sold_comp_price / sold_comp_acres
                 st.metric("PPA", f"${sold_ppa:,.0f}")
                 
                 if acreage > 0:
                     subject_value_sold = sold_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_sold:,.0f}")
-                    if st.button("Update Main", key="update_sold"):
-                        st.session_state.comp_values['sold'] = subject_value_sold
-                        st.rerun()
+                    st.session_state.comp_values['sold'] = subject_value_sold
+            
+            if st.button("Update Main", key="update_sold"):
+                st.rerun()
         
         # Active Comp
         st.subheader("🔍 Most Accurate Active Comp")
@@ -587,16 +588,17 @@ def main():
         with col3:
             active_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="active_acres")
         with col4:
-            if active_comp_acres > 0:
+            if active_comp_acres > 0 and active_comp_price > 0:
                 active_ppa = active_comp_price / active_comp_acres
                 st.metric("PPA", f"${active_ppa:,.0f}")
                 
                 if acreage > 0:
                     subject_value_active = active_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_active:,.0f}")
-                    if st.button("Update Main", key="update_active"):
-                        st.session_state.comp_values['active'] = subject_value_active
-                        st.rerun()
+                    st.session_state.comp_values['active'] = subject_value_active
+            
+            if st.button("Update Main", key="update_active"):
+                st.rerun()
     
     with tab3:
         st.markdown('<div class="section-header">Subdivision Analysis</div>', unsafe_allow_html=True)
@@ -652,7 +654,7 @@ def main():
         with col2:
             if admin_lots > 0 and acreage > 0:
                 admin_lot_size = acreage / admin_lots
-                st.metric("Acres/Lot", f"{admin_lot_size:.2f}")
+                st.markdown(f"<div style='font-size: 14px;'>Acres/Lot: {admin_lot_size:.2f}</div>", unsafe_allow_html=True)
             else:
                 admin_lot_size = 0
         with col3:
@@ -662,8 +664,8 @@ def main():
             
             if admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
                 admin_total_value = admin_use_ppa * admin_lot_size * admin_lots
-                st.metric("Admin Total", f"${admin_total_value:,.0f}")
-                if st.button("Set Admin Value", key="set_admin"):
+                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Admin Total: ${admin_total_value:,.0f}</div>", unsafe_allow_html=True)
+                if st.button("Set Admin", key="set_admin", use_container_width=True):
                     st.session_state.subdiv_data['admin_value'] = admin_total_value
                     st.rerun()
         
@@ -676,7 +678,7 @@ def main():
         with col2:
             if minor_lots > 0 and acreage > 0:
                 minor_lot_size = acreage / minor_lots
-                st.metric("Acres/Lot", f"{minor_lot_size:.2f}")
+                st.markdown(f"<div style='font-size: 14px;'>Acres/Lot: {minor_lot_size:.2f}</div>", unsafe_allow_html=True)
             else:
                 minor_lot_size = 0
         with col3:
@@ -684,8 +686,8 @@ def main():
             
             if minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
                 minor_total_value = minor_ppa * minor_lot_size * minor_lots
-                st.metric("Minor Total", f"${minor_total_value:,.0f}")
-                if st.button("Set Minor Value", key="set_minor"):
+                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Minor Total: ${minor_total_value:,.0f}</div>", unsafe_allow_html=True)
+                if st.button("Set Minor", key="set_minor", use_container_width=True):
                     st.session_state.subdiv_data['minor_value'] = minor_total_value
                     st.rerun()
         
