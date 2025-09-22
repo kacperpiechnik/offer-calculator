@@ -274,6 +274,9 @@ def load_deal_data(deal_id):
         st.session_state.sf_percentage = data.get('sf_percentage', 85)
         st.session_state.acreage = data.get('acreage', 5.0)
         
+        # Store manual target separately (not as a widget key)
+        st.session_state.saved_manual_target = data.get('manual_target', 0)
+        
         # Restore comp analysis data
         if 'comp_analysis' in data:
             comp = data['comp_analysis']
@@ -311,7 +314,7 @@ def compile_save_data(fmv_input, acreage, adjusted_fmv, offers, config):
         'purchase_return': offers['purchase_return'],
         'wholesale_return': offers['wholesale_return'],
         'can_subdivide': st.session_state.data.get('can_subdivide', False),
-        'manual_target': st.session_state.get('manual_target', 0),
+        'manual_target': st.session_state.get('manual_target_input', 0),
         
         # Seller finance
         'seller_finance': st.session_state.get('seller_finance', 0),
@@ -406,9 +409,9 @@ def main():
     
     # Handle URL parameters
     try:
-        url_fmv_raw = float(url_fmv) if url_fmv and url_fmv != '' else None
-        # Apply 94% adjustment to FMV from Pipedrive
-        url_fmv = int(url_fmv_raw * 0.94) if url_fmv_raw else None
+        url_fmv = float(url_fmv) if url_fmv and url_fmv != '' else None
+        # Use FMV directly without any adjustment
+        url_fmv = int(url_fmv) if url_fmv else None
     except (ValueError, TypeError):
         url_fmv = None
     
@@ -570,8 +573,7 @@ def main():
         col1, col2 = st.columns([1, 3])
         with col1:
             manual_target = st.number_input("Custom Target Profit ($)", min_value=0, step=1000, 
-                                           value=st.session_state.get('manual_target', 0), key="manual_target")
-            st.session_state.manual_target = manual_target
+                                           value=st.session_state.get('saved_manual_target', 0), key="manual_target_input")
         with col2:
             if manual_target > 0:
                 custom_offers = calculate_offers(adjusted_fmv, config, manual_target)
