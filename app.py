@@ -280,6 +280,17 @@ def main():
     url_fmv = query_params.get('fmv', None)
     url_acreage = query_params.get('acreage', None)
     
+    # Convert and validate URL parameters
+    try:
+        url_fmv = int(url_fmv) if url_fmv and url_fmv != '' else None
+    except (ValueError, TypeError):
+        url_fmv = None
+    
+    try:
+        url_acreage = float(url_acreage) if url_acreage and url_acreage != '' else None
+    except (ValueError, TypeError):
+        url_acreage = None
+    
     # Sidebar
     with st.sidebar:
         st.markdown("### 📊 System Status")
@@ -323,8 +334,12 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Use URL parameter if available
-            default_fmv = int(url_fmv) if url_fmv else int(st.session_state.data.get('fmv', 100000))
+            # Use URL parameter if available, validate it's reasonable
+            if url_fmv and url_fmv > 0:
+                default_fmv = url_fmv
+            else:
+                default_fmv = int(st.session_state.data.get('fmv', 100000))
+            
             fmv_input = st.number_input(
                 "Fair Market Value ($)",
                 min_value=0,
@@ -333,7 +348,12 @@ def main():
                 format="%d"
             )
             
-            default_acreage = float(url_acreage) if url_acreage else float(st.session_state.data.get('acreage', 5.0))
+            # Use URL parameter if available, validate it's reasonable
+            if url_acreage and url_acreage > 0:
+                default_acreage = url_acreage
+            else:
+                default_acreage = float(st.session_state.data.get('acreage', 5.0))
+            
             acreage = st.number_input(
                 "Acreage",
                 min_value=0.0,
@@ -342,6 +362,10 @@ def main():
                 format="%.2f"
             )
             st.session_state.acreage = acreage
+            
+            # Show warning if values came from URL but were missing
+            if deal_id and (not url_fmv or not url_acreage):
+                st.warning("⚠️ Some values missing from Pipedrive. Using defaults.")
         
         with col2:
             st.subheader("Adjustments")
