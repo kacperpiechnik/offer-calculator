@@ -80,14 +80,6 @@ st.markdown("""
         color: white;
         font-weight: bold;
     }
-    /* Smaller adjustments text */
-    .adjustment-row {
-        font-size: 12px !important;
-    }
-    /* Reduce SF slider spacing */
-    .element-container:has(.stSlider) {
-        margin-top: -10px !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -243,7 +235,6 @@ def calculate_subdivision_purchase(total_subdiv_value, config):
 def push_to_pipedrive(deal_id, data):
     """Push calculated values to Pipedrive"""
     if not PIPEDRIVE_API_TOKEN or not PIPEDRIVE_DOMAIN:
-        # For testing: Show what would be sent
         st.warning("Pipedrive not configured. Would send:")
         st.json({
             "deal_id": deal_id,
@@ -267,6 +258,117 @@ def push_to_pipedrive(deal_id, data):
         st.error(f"Pipedrive update failed: {e}")
         return False
 
+# ============= DATA LOADING AND INITIALIZATION =============
+def load_deal_data(deal_id):
+    """Load all deal data from database and apply to session state"""
+    if not deal_id:
+        return None
+        
+    data = load_from_db(deal_id)
+    if data:
+        # Restore all saved values to session state
+        st.session_state.data = data
+        st.session_state.adjustments = data.get('adjustments', [])
+        st.session_state.subdiv_data = data.get('subdiv_data', {})
+        st.session_state.comp_values = data.get('comp_values', {'sold': 0, 'active': 0})
+        st.session_state.sf_percentage = data.get('sf_percentage', 85)
+        st.session_state.acreage = data.get('acreage', 5.0)
+        
+        # Restore comp analysis data
+        if 'comp_analysis' in data:
+            comp = data['comp_analysis']
+            st.session_state.temp_sold = comp.get('sold_comp', {'price': 0, 'acres': 0.0, 'link': ''})
+            st.session_state.temp_active = comp.get('active_comp', {'price': 0, 'acres': 0.0, 'link': ''})
+        
+        # Restore subdivision data
+        if 'subdivision' in data:
+            subdiv = data['subdivision']
+            st.session_state.subdiv_inputs = subdiv
+        
+        # Restore negotiation data
+        if 'negotiation' in data:
+            st.session_state.negotiation = data['negotiation']
+        
+        # Restore custom profit data
+        if 'custom_profit' in data:
+            st.session_state.custom_profit = data['custom_profit']
+            
+        return data
+    return None
+
+def compile_save_data(fmv_input, acreage, adjusted_fmv, offers, config):
+    """Compile all data from all tabs for saving"""
+    save_data = {
+        # Basic property data
+        'fmv': fmv_input,
+        'acreage': acreage,
+        'adjustments': st.session_state.adjustments,
+        'adjusted_fmv': adjusted_fmv,
+        
+        # Offer calculations
+        'purchase_price': offers['purchase'],
+        'wholesale_price': offers['wholesale'],
+        'purchase_return': offers['purchase_return'],
+        'wholesale_return': offers['wholesale_return'],
+        'can_subdivide': st.session_state.data.get('can_subdivide', False),
+        'manual_target': st.session_state.get('manual_target', 0),
+        
+        # Seller finance
+        'seller_finance': st.session_state.get('seller_finance', 0),
+        'sf_percentage': st.session_state.get('sf_percentage', 85),
+        
+        # Comp values
+        'comp_values': st.session_state.comp_values,
+        
+        # Comp analysis details
+        'comp_analysis': {
+            'sold_comp': {
+                'link': st.session_state.get('sold_link', ''),
+                'price': st.session_state.get('temp_sold', {}).get('price', 0),
+                'acres': st.session_state.get('temp_sold', {}).get('acres', 0.0)
+            },
+            'active_comp': {
+                'link': st.session_state.get('active_link', ''),
+                'price': st.session_state.get('temp_active', {}).get('price', 0),
+                'acres': st.session_state.get('temp_active', {}).get('acres', 0.0)
+            }
+        },
+        
+        # Subdivision data
+        'subdiv_data': st.session_state.subdiv_data,
+        'subdivision': {
+            'road_frontage': st.session_state.get('road_front', 0),
+            'frontage_required': st.session_state.get('front_req', 100),
+            'admin_sold_link': st.session_state.get('admin_sold_link', ''),
+            'admin_sold_price': st.session_state.get('admin_sold_price', 0),
+            'admin_sold_acres': st.session_state.get('admin_sold_acres', 0.0),
+            'admin_active_link': st.session_state.get('admin_active_link', ''),
+            'admin_active_price': st.session_state.get('admin_active_price', 0),
+            'admin_active_acres': st.session_state.get('admin_active_acres', 0.0),
+            'admin_lots': st.session_state.get('admin_lots_num', 0),
+            'admin_use_ppa': st.session_state.get('admin_use_ppa', 0),
+            'minor_lots': st.session_state.get('minor_lots_num', 0),
+            'minor_ppa': st.session_state.get('minor_ppa', 0)
+        },
+        
+        # Negotiation data
+        'negotiation': {
+            'test_purchase': st.session_state.get('test_purchase', offers['purchase']),
+            'test_wholesale': st.session_state.get('test_wholesale', offers['wholesale'])
+        },
+        
+        # Custom profit calculator
+        'custom_profit': {
+            'sale_value': st.session_state.get('custom_sale_value', 0),
+            'purchase': st.session_state.get('custom_purchase', 0),
+            'closing': st.session_state.get('custom_closing', 2500),
+            'broker_percent': st.session_state.get('broker_percent', 6.0),
+            'funding_percent': st.session_state.get('funding_percent', 5.0)
+        }
+    }
+    
+    return save_data
+
 # ============= MAIN APP =============
 def main():
     # Initialize
@@ -280,17 +382,32 @@ def main():
         st.session_state.subdiv_data = {}
     if 'comp_values' not in st.session_state:
         st.session_state.comp_values = {'sold': 0, 'active': 0}
+    if 'temp_sold' not in st.session_state:
+        st.session_state.temp_sold = {'price': 0, 'acres': 0.0, 'link': ''}
+    if 'temp_active' not in st.session_state:
+        st.session_state.temp_active = {'price': 0, 'acres': 0.0, 'link': ''}
+    if 'data' not in st.session_state:
+        st.session_state.data = {}
+    if 'acreage' not in st.session_state:
+        st.session_state.acreage = 5.0
     
-    # Get URL parameters for automation
+    # Get URL parameters
     query_params = st.query_params
     deal_id = query_params.get('deal_id', '')
     url_fmv = query_params.get('fmv', None)
     url_acreage = query_params.get('acreage', None)
     
-    # Convert and validate URL parameters
+    # Load existing data if deal_id is present
+    if deal_id and 'loaded_deal' not in st.session_state:
+        loaded_data = load_deal_data(deal_id)
+        if loaded_data:
+            st.session_state.loaded_deal = deal_id
+            st.rerun()
+    
+    # Handle URL parameters
     try:
-        url_fmv_raw = int(url_fmv) if url_fmv and url_fmv != '' else None
-        # Apply 94% adjustment to FMV from Pipedrive (you can change this to 0.90 or 0.95)
+        url_fmv_raw = float(url_fmv) if url_fmv and url_fmv != '' else None
+        # Apply 94% adjustment to FMV from Pipedrive
         url_fmv = int(url_fmv_raw * 0.94) if url_fmv_raw else None
     except (ValueError, TypeError):
         url_fmv = None
@@ -309,6 +426,12 @@ def main():
             st.success("✓ Database connected")
         else:
             st.info("ℹ Database not configured")
+        
+        if deal_id:
+            st.markdown("---")
+            st.markdown(f"**Deal ID:** {deal_id}")
+            if st.session_state.get('loaded_deal') == deal_id:
+                st.success("✓ Data Loaded")
         st.markdown("---")
     
     # Header
@@ -319,23 +442,18 @@ def main():
         deal_id_input = st.text_input("Deal ID", value=deal_id, key="deal_id_input", placeholder="Enter Deal ID")
         if deal_id_input != deal_id:
             st.query_params['deal_id'] = deal_id_input
-            deal_id = deal_id_input
+            if 'loaded_deal' in st.session_state:
+                del st.session_state.loaded_deal
+            st.rerun()
     with col3:
         if deal_id:
-            existing_data = load_from_db(deal_id)
-            if existing_data:
-                st.success("✓ Loaded")
-                st.session_state.data = existing_data
-    
-    if 'data' not in st.session_state:
-        st.session_state.data = {}
-    
-    # Store acreage in session state
-    if 'acreage' not in st.session_state:
-        st.session_state.acreage = 5.0
+            if st.button("🔄 Reload", use_container_width=True):
+                if 'loaded_deal' in st.session_state:
+                    del st.session_state.loaded_deal
+                st.rerun()
     
     # Main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Property & Offers", "🏘️ Comps Analysis", "📐 Subdivision", "💰 Negotiation", "🧮 Custom Profit"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Property & Offers", "🏠 Comps Analysis", "📍 Subdivision", "💰 Negotiation", "🧮 Custom Profit"])
     
     with tab1:
         st.markdown('<div class="section-header">Property Details</div>', unsafe_allow_html=True)
@@ -343,13 +461,14 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Use URL parameter if available, otherwise use saved or 0
-            if url_fmv and url_fmv > 0:
+            # Priority: URL parameter > saved data > default
+            if url_fmv and url_fmv > 0 and 'url_fmv_applied' not in st.session_state:
                 default_fmv = url_fmv
+                st.session_state.url_fmv_applied = True
             elif 'fmv' in st.session_state.data:
                 default_fmv = int(st.session_state.data.get('fmv'))
             else:
-                default_fmv = 0  # Start with 0 if no value from Pipedrive
+                default_fmv = 0
             
             fmv_input = st.number_input(
                 "Fair Market Value ($)",
@@ -359,13 +478,14 @@ def main():
                 format="%d"
             )
             
-            # Use URL parameter if available, otherwise use saved or 0
-            if url_acreage and url_acreage > 0:
+            # Priority: URL parameter > saved data > default
+            if url_acreage and url_acreage > 0 and 'url_acreage_applied' not in st.session_state:
                 default_acreage = url_acreage
+                st.session_state.url_acreage_applied = True
             elif 'acreage' in st.session_state.data:
                 default_acreage = float(st.session_state.data.get('acreage'))
             else:
-                default_acreage = 0.0  # Start with 0 if no value from Pipedrive
+                default_acreage = 0.0
             
             acreage = st.number_input(
                 "Acreage",
@@ -379,7 +499,6 @@ def main():
         with col2:
             st.subheader("Adjustments")
             
-            # Compact adjustment input
             col_desc, col_amt = st.columns([2, 1])
             with col_desc:
                 new_desc = st.text_input("", key="new_adj_desc", label_visibility="collapsed", placeholder="Description")
@@ -391,7 +510,6 @@ def main():
                     st.session_state.adjustments.append({'description': new_desc, 'amount': new_amt})
                     st.rerun()
             
-            # Display adjustments with smaller font
             total_adjustments = 0
             if st.session_state.adjustments:
                 for i, adj in enumerate(st.session_state.adjustments):
@@ -416,8 +534,10 @@ def main():
             
             can_subdivide = st.checkbox(
                 "Can Subdivide",
-                value=st.session_state.data.get('can_subdivide', False)
+                value=st.session_state.data.get('can_subdivide', False),
+                key="can_subdivide"
             )
+            st.session_state.data['can_subdivide'] = can_subdivide
             
             if can_subdivide and st.session_state.subdiv_data:
                 if 'admin_value' in st.session_state.subdiv_data:
@@ -449,7 +569,9 @@ def main():
         # Manual target profit input
         col1, col2 = st.columns([1, 3])
         with col1:
-            manual_target = st.number_input("Custom Target Profit ($)", min_value=0, step=1000, key="manual_target")
+            manual_target = st.number_input("Custom Target Profit ($)", min_value=0, step=1000, 
+                                           value=st.session_state.get('manual_target', 0), key="manual_target")
+            st.session_state.manual_target = manual_target
         with col2:
             if manual_target > 0:
                 custom_offers = calculate_offers(adjusted_fmv, config, manual_target)
@@ -483,6 +605,7 @@ def main():
             if show_seller_finance:
                 sf_percentage = st.session_state.get('sf_percentage', 85)
                 sf_price = calculate_seller_finance(adjusted_fmv, config, sf_percentage/100)
+                st.session_state.seller_finance = sf_price
                 
                 st.markdown(f"""
                     <div class="offer-card finance-offer">
@@ -492,7 +615,6 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Slider with reduced spacing
                 new_sf = st.slider("", min_value=80, max_value=95, value=sf_percentage, step=5, 
                                    key="sf_slider", label_visibility="collapsed")
                 if new_sf != sf_percentage:
@@ -503,16 +625,13 @@ def main():
         
         with col4:
             if can_subdivide and st.session_state.subdiv_data:
-                # Get highest value and both purchase prices
                 admin_val = st.session_state.subdiv_data.get('admin_value', 0)
                 minor_val = st.session_state.subdiv_data.get('minor_value', 0)
                 
                 if admin_val > 0 or minor_val > 0:
-                    # Calculate purchase prices for both
                     admin_purchase = calculate_subdivision_purchase(admin_val, config) if admin_val > 0 else 0
                     minor_purchase = calculate_subdivision_purchase(minor_val, config) if minor_val > 0 else 0
                     
-                    # Use highest value for main display
                     highest_val = max(admin_val, minor_val)
                     highest_purchase = admin_purchase if admin_val >= minor_val else minor_purchase
                     highest_profit = calculate_subdivision_profit(highest_val, highest_purchase)
@@ -547,27 +666,14 @@ def main():
             col_save, col_push = st.columns(2)
             
             with col_save:
-                if st.button("💾 Save", use_container_width=True):
-                    save_data = {
-                        'fmv': fmv_input,
-                        'acreage': acreage,
-                        'adjustments': st.session_state.adjustments,
-                        'adjusted_fmv': adjusted_fmv,
-                        'purchase_price': offers['purchase'],
-                        'wholesale_price': offers['wholesale'],
-                        'can_subdivide': can_subdivide,
-                        'manual_target': manual_target if 'manual_target' in locals() else 0
-                    }
-                    
-                    if show_seller_finance:
-                        save_data['seller_finance'] = sf_price
-                        save_data['sf_percentage'] = st.session_state.get('sf_percentage', 85)
-                    
-                    if deal_id and save_to_db(deal_id, save_data):
-                        st.success("✓ Saved!")
-                        st.session_state.data = save_data
+                if st.button("💾 Save All", use_container_width=True):
+                    if deal_id:
+                        save_data = compile_save_data(fmv_input, acreage, adjusted_fmv, offers, config)
+                        if save_to_db(deal_id, save_data):
+                            st.success("✓ All data saved!")
+                            st.session_state.data = save_data
                     else:
-                        st.warning("Enter Deal ID")
+                        st.warning("Enter Deal ID to save")
             
             with col_push:
                 if st.button("📤 Push to Pipedrive", use_container_width=True):
@@ -575,7 +681,7 @@ def main():
                         push_data = {
                             'purchase_price': offers['purchase'],
                             'wholesale_price': offers['wholesale'],
-                            'seller_finance': sf_price if show_seller_finance else 0
+                            'seller_finance': st.session_state.get('seller_finance', 0)
                         }
                         if push_to_pipedrive(deal_id, push_data):
                             st.success("✓ Pushed!")
@@ -587,18 +693,14 @@ def main():
         
         acreage = st.session_state.acreage
         
-        # Initialize temp storage for current values
-        if 'temp_sold' not in st.session_state:
-            st.session_state.temp_sold = {'price': 0, 'acres': 0.0}
-        if 'temp_active' not in st.session_state:
-            st.session_state.temp_active = {'price': 0, 'acres': 0.0}
-        
         # Sold Comp
-        st.subheader("🔍 Most Relevant Sold Comp")
+        st.subheader("📍 Most Relevant Sold Comp")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            sold_comp_link = st.text_input("Link", key="sold_link", placeholder="Zillow/Redfin")
+            sold_comp_link = st.text_input("Link", key="sold_link", placeholder="Zillow/Redfin",
+                                          value=st.session_state.temp_sold.get('link', ''))
+            st.session_state.temp_sold['link'] = sold_comp_link
         with col2:
             sold_comp_price = st.number_input("Sale Price ($)", min_value=0, step=1000, key="sold_price",
                                             value=st.session_state.temp_sold['price'])
@@ -615,17 +717,17 @@ def main():
                 if acreage > 0:
                     subject_value_sold = sold_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_sold:,.0f}")
+                    # Auto-update comp values
                     st.session_state.comp_values['sold'] = subject_value_sold
-            
-            if st.button("Update Main", key="update_sold"):
-                st.rerun()
         
         # Active Comp
-        st.subheader("🔍 Most Accurate Active Comp")
+        st.subheader("📍 Most Accurate Active Comp")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            active_comp_link = st.text_input("Link", key="active_link", placeholder="Zillow/Redfin")
+            active_comp_link = st.text_input("Link", key="active_link", placeholder="Zillow/Redfin",
+                                            value=st.session_state.temp_active.get('link', ''))
+            st.session_state.temp_active['link'] = active_comp_link
         with col2:
             active_comp_price = st.number_input("Listing ($)", min_value=0, step=1000, key="active_price",
                                               value=st.session_state.temp_active['price'])
@@ -642,24 +744,30 @@ def main():
                 if acreage > 0:
                     subject_value_active = active_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_active:,.0f}")
+                    # Auto-update comp values
                     st.session_state.comp_values['active'] = subject_value_active
-            
-            if st.button("Update Main", key="update_active"):
-                st.rerun()
     
     with tab3:
         st.markdown('<div class="section-header">Subdivision Analysis</div>', unsafe_allow_html=True)
         
         acreage = st.session_state.acreage
         
-        # Road Frontage (no PPA field)
+        # Load saved subdivision data if available
+        if 'subdivision' in st.session_state.data:
+            saved_subdiv = st.session_state.data['subdivision']
+        else:
+            saved_subdiv = {}
+        
+        # Road Frontage
         st.subheader("🛣️ Road Frontage Subdivision")
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            road_frontage = st.number_input("Road Frontage (ft)", min_value=0, value=0, step=10, key="road_front")
+            road_frontage = st.number_input("Road Frontage (ft)", min_value=0, 
+                                           value=saved_subdiv.get('road_frontage', 0), step=10, key="road_front")
         with col2:
-            frontage_required = st.number_input("Required/Lot (ft)", min_value=0, value=100, step=10, key="front_req")
+            frontage_required = st.number_input("Required/Lot (ft)", min_value=0, 
+                                               value=saved_subdiv.get('frontage_required', 100), step=10, key="front_req")
         with col3:
             if frontage_required > 0 and road_frontage > 0:
                 road_lots = int(road_frontage / frontage_required)
@@ -674,9 +782,12 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             st.write("**Admin - Sold Comp**")
-            admin_sold_link = st.text_input("Link", key="admin_sold_link", placeholder="Link")
-            admin_sold_price = st.number_input("Price ($)", min_value=0, step=1000, key="admin_sold_price")
-            admin_sold_acres = st.number_input("Acres", min_value=0.0, step=0.1, key="admin_sold_acres")
+            admin_sold_link = st.text_input("Link", key="admin_sold_link", placeholder="Link",
+                                           value=saved_subdiv.get('admin_sold_link', ''))
+            admin_sold_price = st.number_input("Price ($)", min_value=0, step=1000, key="admin_sold_price",
+                                              value=saved_subdiv.get('admin_sold_price', 0))
+            admin_sold_acres = st.number_input("Acres", min_value=0.0, step=0.1, key="admin_sold_acres",
+                                              value=saved_subdiv.get('admin_sold_acres', 0.0))
             if admin_sold_acres > 0:
                 admin_sold_ppa = admin_sold_price / admin_sold_acres
                 st.metric("PPA", f"${admin_sold_ppa:,.0f}")
@@ -685,9 +796,12 @@ def main():
         
         with col2:
             st.write("**Admin - Active Comp**")
-            admin_active_link = st.text_input("Link", key="admin_active_link", placeholder="Link")
-            admin_active_price = st.number_input("Price ($)", min_value=0, step=1000, key="admin_active_price")
-            admin_active_acres = st.number_input("Acres", min_value=0.0, step=0.1, key="admin_active_acres")
+            admin_active_link = st.text_input("Link", key="admin_active_link", placeholder="Link",
+                                             value=saved_subdiv.get('admin_active_link', ''))
+            admin_active_price = st.number_input("Price ($)", min_value=0, step=1000, key="admin_active_price",
+                                                value=saved_subdiv.get('admin_active_price', 0))
+            admin_active_acres = st.number_input("Acres", min_value=0.0, step=0.1, key="admin_active_acres",
+                                                value=saved_subdiv.get('admin_active_acres', 0.0))
             if admin_active_acres > 0:
                 admin_active_ppa = admin_active_price / admin_active_acres
                 st.metric("PPA", f"${admin_active_ppa:,.0f}")
@@ -695,48 +809,53 @@ def main():
                 admin_active_ppa = 0
         
         # Admin calculation
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            admin_lots = st.number_input("Admin Lots", min_value=0, value=0, step=1, key="admin_lots_num")
+            admin_lots = st.number_input("Admin Lots", min_value=0, 
+                                        value=saved_subdiv.get('admin_lots', 0), step=1, key="admin_lots_num")
         with col2:
             if admin_lots > 0 and acreage > 0:
                 admin_lot_size = acreage / admin_lots
-                st.markdown(f"<div style='font-size: 14px;'>Acres/Lot: {admin_lot_size:.2f}</div>", unsafe_allow_html=True)
+                st.metric("Acres/Lot", f"{admin_lot_size:.2f}")
             else:
                 admin_lot_size = 0
         with col3:
             admin_use_ppa = st.number_input("Use PPA ($)", 
-                                           value=int(admin_sold_ppa),
+                                           value=saved_subdiv.get('admin_use_ppa', int(admin_sold_ppa)),
                                            min_value=0, step=100, key="admin_use_ppa")
-            
+        with col4:
             if admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
                 admin_total_value = admin_use_ppa * admin_lot_size * admin_lots
-                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Admin Total: ${admin_total_value:,.0f}</div>", unsafe_allow_html=True)
-                if st.button("Set Admin", key="set_admin", use_container_width=True):
-                    st.session_state.subdiv_data['admin_value'] = admin_total_value
-                    st.rerun()
+                st.metric("Total Value", f"${admin_total_value:,.0f}")
+                # Auto-calculate and update
+                st.session_state.subdiv_data['admin_value'] = admin_total_value
+                admin_purchase = calculate_subdivision_purchase(admin_total_value, config)
+                st.caption(f"Purchase: ${admin_purchase:,.0f}")
         
         # Minor Split
         st.subheader("📋 Minor Split")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            minor_lots = st.number_input("Minor Lots", min_value=0, value=0, step=1, key="minor_lots_num")
+            minor_lots = st.number_input("Minor Lots", min_value=0, 
+                                        value=saved_subdiv.get('minor_lots', 0), step=1, key="minor_lots_num")
         with col2:
             if minor_lots > 0 and acreage > 0:
                 minor_lot_size = acreage / minor_lots
-                st.markdown(f"<div style='font-size: 14px;'>Acres/Lot: {minor_lot_size:.2f}</div>", unsafe_allow_html=True)
+                st.metric("Acres/Lot", f"{minor_lot_size:.2f}")
             else:
                 minor_lot_size = 0
         with col3:
-            minor_ppa = st.number_input("PPA ($)", min_value=0, step=100, key="minor_ppa")
-            
+            minor_ppa = st.number_input("PPA ($)", min_value=0, step=100, key="minor_ppa",
+                                       value=saved_subdiv.get('minor_ppa', 0))
+        with col4:
             if minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
                 minor_total_value = minor_ppa * minor_lot_size * minor_lots
-                st.markdown(f"<div style='font-size: 14px; font-weight: bold;'>Minor Total: ${minor_total_value:,.0f}</div>", unsafe_allow_html=True)
-                if st.button("Set Minor", key="set_minor", use_container_width=True):
-                    st.session_state.subdiv_data['minor_value'] = minor_total_value
-                    st.rerun()
+                st.metric("Total Value", f"${minor_total_value:,.0f}")
+                # Auto-calculate and update
+                st.session_state.subdiv_data['minor_value'] = minor_total_value
+                minor_purchase = calculate_subdivision_purchase(minor_total_value, config)
+                st.caption(f"Purchase: ${minor_purchase:,.0f}")
         
         # Show both values summary
         if 'admin_value' in st.session_state.subdiv_data or 'minor_value' in st.session_state.subdiv_data:
@@ -746,16 +865,20 @@ def main():
                 if 'admin_value' in st.session_state.subdiv_data:
                     admin_v = st.session_state.subdiv_data['admin_value']
                     admin_p = calculate_subdivision_purchase(admin_v, config)
+                    admin_profit = calculate_subdivision_profit(admin_v, admin_p)
                     st.metric("Admin Split", f"${admin_v:,.0f}")
                     st.caption(f"Purchase: ${admin_p:,.0f}")
+                    st.caption(f"Profit: ${admin_profit:,.0f}")
             with col2:
                 if 'minor_value' in st.session_state.subdiv_data:
                     minor_v = st.session_state.subdiv_data['minor_value']
                     minor_p = calculate_subdivision_purchase(minor_v, config)
+                    minor_profit = calculate_subdivision_profit(minor_v, minor_p)
                     st.metric("Minor Split", f"${minor_v:,.0f}")
                     st.caption(f"Purchase: ${minor_p:,.0f}")
+                    st.caption(f"Profit: ${minor_profit:,.0f}")
             with col3:
-                if st.button("Clear All Subdivision Values"):
+                if st.button("Clear Subdivision Values"):
                     st.session_state.subdiv_data = {}
                     st.rerun()
     
@@ -764,6 +887,12 @@ def main():
         
         st.subheader("🤝 Test Different Price Points")
         
+        # Load saved negotiation data
+        if 'negotiation' in st.session_state.data:
+            saved_neg = st.session_state.data['negotiation']
+        else:
+            saved_neg = {}
+        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -771,7 +900,7 @@ def main():
             test_purchase = st.number_input(
                 "What if we offered ($):",
                 min_value=0,
-                value=int(offers['purchase']),
+                value=saved_neg.get('test_purchase', int(offers['purchase'])),
                 step=1000,
                 key="test_purchase"
             )
@@ -797,7 +926,7 @@ def main():
             test_wholesale = st.number_input(
                 "What if we wholesaled at ($):",
                 min_value=0,
-                value=int(offers['wholesale']),
+                value=saved_neg.get('test_wholesale', int(offers['wholesale'])),
                 step=1000,
                 key="test_wholesale"
             )
@@ -823,6 +952,12 @@ def main():
         
         st.subheader("💡 Calculate Custom Deal Profit")
         
+        # Load saved custom profit data
+        if 'custom_profit' in st.session_state.data:
+            saved_custom = st.session_state.data['custom_profit']
+        else:
+            saved_custom = {}
+        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -831,6 +966,7 @@ def main():
                 "Expected Total Sale Value ($)",
                 min_value=0,
                 step=1000,
+                value=saved_custom.get('sale_value', 0),
                 key="custom_sale_value",
                 help="Total expected sale price"
             )
@@ -839,6 +975,7 @@ def main():
                 "Purchase Price ($)",
                 min_value=0,
                 step=1000,
+                value=saved_custom.get('purchase', 0),
                 key="custom_purchase",
                 help="What you're paying for the property"
             )
@@ -846,7 +983,7 @@ def main():
             custom_closing = st.number_input(
                 "Expected Closing Costs ($)",
                 min_value=0,
-                value=2500,
+                value=saved_custom.get('closing', 2500),
                 step=100,
                 key="custom_closing"
             )
@@ -857,7 +994,7 @@ def main():
                 "Broker Costs (%)",
                 min_value=0.0,
                 max_value=10.0,
-                value=6.0,
+                value=saved_custom.get('broker_percent', 6.0),
                 step=0.5,
                 key="broker_percent",
                 help="Percentage of sale price for broker"
@@ -867,7 +1004,7 @@ def main():
                 "Funding/Lender Costs (%)",
                 min_value=0.0,
                 max_value=20.0,
-                value=5.0,
+                value=saved_custom.get('funding_percent', 5.0),
                 step=0.5,
                 key="funding_percent",
                 help="Percentage added to purchase price for funding"
@@ -926,13 +1063,6 @@ def main():
                             <div style="font-size: 32px; font-weight: bold;">-${abs(custom_profit):,.0f}</div>
                         </div>
                     """, unsafe_allow_html=True)
-            
-            # Show formula
-            st.markdown("---")
-            st.caption("**Formula Used:**")
-            st.caption(f"Net Proceeds = Sale Value × (1 - Broker %) - Closing Costs")
-            st.caption(f"Total Cost = Purchase Price × (1 + Funding %)")
-            st.caption(f"Profit = Net Proceeds - Total Cost")
 
 if __name__ == "__main__":
     main()
