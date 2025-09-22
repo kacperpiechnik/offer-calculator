@@ -827,7 +827,8 @@ def main():
                                            min_value=0, step=100, key="admin_use_ppa")
         with col4:
             if admin_lots > 0 and admin_lot_size > 0 and admin_use_ppa > 0:
-                admin_total_value = admin_use_ppa * admin_lot_size * admin_lots
+                # Correct formula: lots × acres/lot × PPA
+                admin_total_value = admin_lots * admin_lot_size * admin_use_ppa
                 st.metric("Total Value", f"${admin_total_value:,.0f}")
                 # Auto-calculate and update
                 st.session_state.subdiv_data['admin_value'] = admin_total_value
@@ -852,7 +853,8 @@ def main():
                                        value=saved_subdiv.get('minor_ppa', 0))
         with col4:
             if minor_lots > 0 and minor_lot_size > 0 and minor_ppa > 0:
-                minor_total_value = minor_ppa * minor_lot_size * minor_lots
+                # Correct formula: lots × acres/lot × PPA
+                minor_total_value = minor_lots * minor_lot_size * minor_ppa
                 st.metric("Total Value", f"${minor_total_value:,.0f}")
                 # Auto-calculate and update
                 st.session_state.subdiv_data['minor_value'] = minor_total_value
