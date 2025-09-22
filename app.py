@@ -630,6 +630,23 @@ def main():
                 admin_val = st.session_state.subdiv_data.get('admin_value', 0)
                 minor_val = st.session_state.subdiv_data.get('minor_value', 0)
                 
+                # Recalculate based on current values in subdivision tab
+                if 'admin_lots_num' in st.session_state and 'admin_use_ppa' in st.session_state:
+                    admin_lots = st.session_state.get('admin_lots_num', 0)
+                    admin_ppa = st.session_state.get('admin_use_ppa', 0)
+                    if admin_lots > 0 and admin_ppa > 0 and acreage > 0:
+                        admin_lot_size = acreage / admin_lots
+                        admin_val = admin_lots * admin_lot_size * admin_ppa
+                        st.session_state.subdiv_data['admin_value'] = admin_val
+                
+                if 'minor_lots_num' in st.session_state and 'minor_ppa' in st.session_state:
+                    minor_lots = st.session_state.get('minor_lots_num', 0)
+                    minor_ppa = st.session_state.get('minor_ppa', 0)
+                    if minor_lots > 0 and minor_ppa > 0 and acreage > 0:
+                        minor_lot_size = acreage / minor_lots
+                        minor_val = minor_lots * minor_lot_size * minor_ppa
+                        st.session_state.subdiv_data['minor_value'] = minor_val
+                
                 if admin_val > 0 or minor_val > 0:
                     admin_purchase = calculate_subdivision_purchase(admin_val, config) if admin_val > 0 else 0
                     minor_purchase = calculate_subdivision_purchase(minor_val, config) if minor_val > 0 else 0
