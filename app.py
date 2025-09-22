@@ -212,12 +212,9 @@ def calculate_offers(fmv, config, custom_target=None):
         'nsp_wholesale': nsp_wholesale
     }
 
-def calculate_seller_finance(value, config, percentage=0.85):
-    """Calculate seller finance offer"""
-    purchase_return = get_expected_return(value, config, 'purchase')
-    nsp_seller_finance = value * percentage * 0.94 - 3500
-    seller_finance = nsp_seller_finance - purchase_return
-    return max(0, seller_finance)
+def calculate_seller_finance_simple(fmv, percentage=0.85):
+    """Calculate seller finance as a simple percentage of FMV"""
+    return fmv * percentage
 
 def calculate_subdivision_profit(total_subdiv_value, purchase_price):
     """Calculate profit from subdivision
@@ -606,8 +603,8 @@ def main():
         with col3:
             if show_seller_finance:
                 sf_percentage = st.session_state.get('sf_percentage', 85)
-                # Use actual FMV (not adjusted) for seller finance calculation
-                sf_price = calculate_seller_finance(fmv_input, config, sf_percentage/100)
+                # Simple percentage of FMV for seller finance
+                sf_price = calculate_seller_finance_simple(fmv_input, sf_percentage/100)
                 st.session_state.seller_finance = sf_price
                 
                 st.markdown(f"""
