@@ -243,16 +243,23 @@ def calculate_subdivision_purchase(total_subdiv_value, config):
 def push_to_pipedrive(deal_id, data):
     """Push calculated values to Pipedrive"""
     if not PIPEDRIVE_API_TOKEN or not PIPEDRIVE_DOMAIN:
-        st.warning("Pipedrive credentials not configured")
+        # For testing: Show what would be sent
+        st.warning("Pipedrive not configured. Would send:")
+        st.json({
+            "deal_id": deal_id,
+            "purchase_price": round(data['purchase_price']),
+            "wholesale_price": round(data['wholesale_price']),
+            "seller_finance": round(data.get('seller_finance', 0))
+        })
         return False
     
     try:
         url = f"https://{PIPEDRIVE_DOMAIN}.pipedrive.com/api/v1/deals/{deal_id}?api_token={PIPEDRIVE_API_TOKEN}"
         payload = {
-            PIPEDRIVE_FIELDS['purchase_price']: data['purchase_price'],
-            PIPEDRIVE_FIELDS['wholesale_price']: data['wholesale_price'],
-            PIPEDRIVE_FIELDS['seller_finance']: data.get('seller_finance', 0),
-            PIPEDRIVE_FIELDS['calculator_link']: f"https://app.com?deal_id={deal_id}"
+            PIPEDRIVE_FIELDS['purchase_price']: round(data['purchase_price']),
+            PIPEDRIVE_FIELDS['wholesale_price']: round(data['wholesale_price']),
+            PIPEDRIVE_FIELDS['seller_finance']: round(data.get('seller_finance', 0)),
+            PIPEDRIVE_FIELDS['calculator_link']: f"https://pa-offer-calculator.streamlit.app/?deal_id={deal_id}"
         }
         response = requests.put(url, json=payload)
         return response.status_code == 200
@@ -282,7 +289,9 @@ def main():
     
     # Convert and validate URL parameters
     try:
-        url_fmv = int(url_fmv) if url_fmv and url_fmv != '' else None
+        url_fmv_raw = int(url_fmv) if url_fmv and url_fmv != '' else None
+        # Apply 94% adjustment to FMV from Pipedrive (you can change this to 0.90 or 0.95)
+        url_fmv = int(url_fmv_raw * 0.94) if url_fmv_raw else None
     except (ValueError, TypeError):
         url_fmv = None
     
@@ -334,11 +343,13 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Use URL parameter if available, validate it's reasonable
+            # Use URL parameter if available, otherwise use saved or 0
             if url_fmv and url_fmv > 0:
                 default_fmv = url_fmv
+            elif 'fmv' in st.session_state.data:
+                default_fmv = int(st.session_state.data.get('fmv'))
             else:
-                default_fmv = int(st.session_state.data.get('fmv', 100000))
+                default_fmv = 0  # Start with 0 if no value from Pipedrive
             
             fmv_input = st.number_input(
                 "Fair Market Value ($)",
@@ -348,11 +359,13 @@ def main():
                 format="%d"
             )
             
-            # Use URL parameter if available, validate it's reasonable
+            # Use URL parameter if available, otherwise use saved or 0
             if url_acreage and url_acreage > 0:
                 default_acreage = url_acreage
+            elif 'acreage' in st.session_state.data:
+                default_acreage = float(st.session_state.data.get('acreage'))
             else:
-                default_acreage = float(st.session_state.data.get('acreage', 5.0))
+                default_acreage = 0.0  # Start with 0 if no value from Pipedrive
             
             acreage = st.number_input(
                 "Acreage",
@@ -362,10 +375,6 @@ def main():
                 format="%.2f"
             )
             st.session_state.acreage = acreage
-            
-            # Show warning if values came from URL but were missing
-            if deal_id and (not url_fmv or not url_acreage):
-                st.warning("⚠️ Some values missing from Pipedrive. Using defaults.")
         
         with col2:
             st.subheader("Adjustments")
