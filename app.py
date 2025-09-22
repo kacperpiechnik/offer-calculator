@@ -273,7 +273,35 @@ def main():
     init_db()
     config = load_google_sheets_config()
     
-    # Initialize session state
+    # Get URL parameters for automation FIRST
+    query_params = st.query_params
+    deal_id = query_params.get('deal_id', '')
+    url_fmv = query_params.get('fmv', None)
+    url_acreage = query_params.get('acreage', None)
+    
+    # Convert and validate URL parameters
+    try:
+        url_fmv_raw = int(url_fmv) if url_fmv and url_fmv != '' else None
+        # Apply 94% adjustment to FMV from Pipedrive (you can change this to 0.90 or 0.95)
+        url_fmv = int(url_fmv_raw * 0.94) if url_fmv_raw else None
+    except (ValueError, TypeError):
+        url_fmv = None
+    
+    try:
+        url_acreage = float(url_acreage) if url_acreage and url_acreage != '' else None
+    except (ValueError, TypeError):
+        url_acreage = None
+    
+    # Function to update URL with all parameters
+    def update_url_params(**kwargs):
+        """Update URL parameters with current values"""
+        for key, value in kwargs.items():
+            if value is not None and value != '' and value != 0:
+                st.query_params[key] = str(value)
+            elif key in st.query_params:
+                del st.query_params[key]
+    
+    # Initialize session state with URL parameters
     if 'adjustments' not in st.session_state:
         # Try to load adjustments from URL
         url_adjustments = query_params.get('adjustments', None)
@@ -327,34 +355,6 @@ def main():
                 st.session_state.sf_percentage = 85
         else:
             st.session_state.sf_percentage = 85
-    
-    # Get URL parameters for automation
-    query_params = st.query_params
-    deal_id = query_params.get('deal_id', '')
-    url_fmv = query_params.get('fmv', None)
-    url_acreage = query_params.get('acreage', None)
-    
-    # Convert and validate URL parameters
-    try:
-        url_fmv_raw = int(url_fmv) if url_fmv and url_fmv != '' else None
-        # Apply 94% adjustment to FMV from Pipedrive (you can change this to 0.90 or 0.95)
-        url_fmv = int(url_fmv_raw * 0.94) if url_fmv_raw else None
-    except (ValueError, TypeError):
-        url_fmv = None
-    
-    try:
-        url_acreage = float(url_acreage) if url_acreage and url_acreage != '' else None
-    except (ValueError, TypeError):
-        url_acreage = None
-    
-    # Function to update URL with all parameters
-    def update_url_params(**kwargs):
-        """Update URL parameters with current values"""
-        for key, value in kwargs.items():
-            if value is not None and value != '' and value != 0:
-                st.query_params[key] = str(value)
-            elif key in st.query_params:
-                del st.query_params[key]
     
     # Sidebar
     with st.sidebar:
