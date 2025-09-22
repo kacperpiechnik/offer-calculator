@@ -280,6 +280,22 @@ def auto_save_all_data(deal_id, fmv, acreage, adjustments, can_subdivide, sessio
         'timestamp': datetime.now().isoformat()
     }
     
+    # Save comp details if they exist
+    if 'temp_sold' in session_state:
+        save_data['comp_sold_details'] = session_state.temp_sold
+    if 'temp_active' in session_state:
+        save_data['comp_active_details'] = session_state.temp_active
+    
+    # Save subdivision input values if they exist
+    if 'admin_lots_num' in session_state:
+        save_data['admin_lots'] = session_state.admin_lots_num
+    if 'admin_use_ppa' in session_state:
+        save_data['admin_ppa'] = session_state.admin_use_ppa
+    if 'minor_lots_num' in session_state:
+        save_data['minor_lots'] = session_state.minor_lots_num
+    if 'minor_ppa' in session_state:
+        save_data['minor_ppa'] = session_state.minor_ppa
+    
     return save_to_db(deal_id, save_data)
 
 def push_to_pipedrive(deal_id, data):
@@ -529,19 +545,6 @@ def main():
                     st.caption(f"Admin: ${st.session_state.subdiv_data['admin_value']:,.0f}")
                 if 'minor_value' in st.session_state.subdiv_data:
                     st.caption(f"Minor: ${st.session_state.subdiv_data['minor_value']:,.0f}")
-        
-        # Now can_subdivide is defined, so we can do auto-save
-        # Auto-save when FMV or acreage changes
-        if deal_id and (fmv_input > 0 or acreage > 0):
-            # Use a simple check to prevent too frequent saves
-            if 'last_fmv' not in st.session_state or st.session_state.last_fmv != fmv_input:
-                st.session_state.last_fmv = fmv_input
-                auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
-                                 can_subdivide, st.session_state, config)
-            elif 'last_acreage' not in st.session_state or st.session_state.last_acreage != acreage:
-                st.session_state.last_acreage = acreage
-                auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
-                                 can_subdivide, st.session_state, config)
             st.subheader("Adjustments")
             
             # Compact adjustment input
@@ -605,6 +608,36 @@ def main():
         
         # Calculate adjusted FMV
         adjusted_fmv = fmv_input + total_adjustments
+        
+        # Auto-save when FMV, acreage, or can_subdivide changes
+        if deal_id and (fmv_input > 0 or acreage > 0):
+            # Use a simple check to prevent too frequent saves
+            should_save = False
+            
+            if 'last_fmv' not in st.session_state:
+                st.session_state.last_fmv = fmv_input
+                should_save = True
+            elif st.session_state.last_fmv != fmv_input:
+                st.session_state.last_fmv = fmv_input
+                should_save = True
+                
+            if 'last_acreage' not in st.session_state:
+                st.session_state.last_acreage = acreage
+                should_save = True
+            elif st.session_state.last_acreage != acreage:
+                st.session_state.last_acreage = acreage
+                should_save = True
+                
+            if 'last_can_subdivide' not in st.session_state:
+                st.session_state.last_can_subdivide = can_subdivide
+                should_save = True
+            elif st.session_state.last_can_subdivide != can_subdivide:
+                st.session_state.last_can_subdivide = can_subdivide
+                should_save = True
+                
+            if should_save:
+                auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                 can_subdivide, st.session_state, config)
         
         # Always recalculate offers based on current values
         offers = calculate_offers(adjusted_fmv, config)
@@ -834,24 +867,38 @@ def main():
         
         # Initialize temp storage for current values
         if 'temp_sold' not in st.session_state:
-            st.session_state.temp_sold = {'price': 0, 'acres': 0.0}
+            st.session_state.temp_sold = {'price': 0, 'acres': 0.0, 'link': ''}
         if 'temp_active' not in st.session_state:
-            st.session_state.temp_active = {'price': 0, 'acres': 0.0}
+            st.session_state.temp_active = {'price': 0, 'acres': 0.0, 'link': ''}
         
         # Sold Comp
         st.subheader("🔍 Most Relevant Sold Comp")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            sold_comp_link = st.text_input("Link", key="sold_link", placeholder="Zillow/Redfin")
+            sold_comp_link = st.text_input("Link", key="sold_link", placeholder="Zillow/Redfin",
+                                          value=st.session_state.temp_sold.get('link', ''))
+            if sold_comp_link != st.session_state.temp_sold.get('link', ''):
+                st.session_state.temp_sold['link'] = sold_comp_link
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col2:
             sold_comp_price = st.number_input("Sale Price ($)", min_value=0, step=1000, key="sold_price",
                                             value=st.session_state.temp_sold['price'])
-            st.session_state.temp_sold['price'] = sold_comp_price
+            if sold_comp_price != st.session_state.temp_sold['price']:
+                st.session_state.temp_sold['price'] = sold_comp_price
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col3:
             sold_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="sold_acres",
                                             value=st.session_state.temp_sold['acres'])
-            st.session_state.temp_sold['acres'] = sold_comp_acres
+            if sold_comp_acres != st.session_state.temp_sold['acres']:
+                st.session_state.temp_sold['acres'] = sold_comp_acres
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col4:
             if sold_comp_acres > 0 and sold_comp_price > 0:
                 sold_ppa = sold_comp_price / sold_comp_acres
@@ -861,24 +908,35 @@ def main():
                     subject_value_sold = sold_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_sold:,.0f}")
                     st.session_state.comp_values['sold'] = subject_value_sold
-            
-            if st.button("Update Main", key="update_sold"):
-                st.rerun()
         
         # Active Comp
         st.subheader("🔍 Most Accurate Active Comp")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            active_comp_link = st.text_input("Link", key="active_link", placeholder="Zillow/Redfin")
+            active_comp_link = st.text_input("Link", key="active_link", placeholder="Zillow/Redfin",
+                                            value=st.session_state.temp_active.get('link', ''))
+            if active_comp_link != st.session_state.temp_active.get('link', ''):
+                st.session_state.temp_active['link'] = active_comp_link
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col2:
             active_comp_price = st.number_input("Listing ($)", min_value=0, step=1000, key="active_price",
                                               value=st.session_state.temp_active['price'])
-            st.session_state.temp_active['price'] = active_comp_price
+            if active_comp_price != st.session_state.temp_active['price']:
+                st.session_state.temp_active['price'] = active_comp_price
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col3:
             active_comp_acres = st.number_input("Acreage", min_value=0.0, step=0.1, key="active_acres",
                                               value=st.session_state.temp_active['acres'])
-            st.session_state.temp_active['acres'] = active_comp_acres
+            if active_comp_acres != st.session_state.temp_active['acres']:
+                st.session_state.temp_active['acres'] = active_comp_acres
+                if deal_id:
+                    auto_save_all_data(deal_id, fmv_input, acreage, st.session_state.adjustments, 
+                                     can_subdivide, st.session_state, config)
         with col4:
             if active_comp_acres > 0 and active_comp_price > 0:
                 active_ppa = active_comp_price / active_comp_acres
@@ -888,9 +946,6 @@ def main():
                     subject_value_active = active_ppa * acreage
                     st.metric("Subject Value", f"${subject_value_active:,.0f}")
                     st.session_state.comp_values['active'] = subject_value_active
-            
-            if st.button("Update Main", key="update_active"):
-                st.rerun()
     
     with tab3:
         st.markdown('<div class="section-header">Subdivision Analysis</div>', unsafe_allow_html=True)
